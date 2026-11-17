@@ -31,7 +31,8 @@ class Facility extends Model
     {
         return $this->belongsToMany(User::class);
     }
- /**
+
+    /**
      * @return HasMany<Patient, $this>
      */
     public function patients(): HasMany

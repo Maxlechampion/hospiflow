@@ -1,7 +1,7 @@
 <?php
 
 namespace App\Http\Controllers;
-use Illuminate\Database\Eloquent\Model;
+
 use App\Http\Controllers\Concerns\ResolvesFacility;
 use App\Http\Requests\Patient\StorePatientRequest;
 use App\Http\Requests\Patient\UpdatePatientRequest;
@@ -160,9 +160,7 @@ class PatientController extends Controller
         return 'P-'.strtoupper($facility->code).'-'
             .str_pad((string) $count, 4, '0', STR_PAD_LEFT);
     }
-     /**
-     * @param Patient $patient
-     */
+
     private function payload(Patient $patient): array
     {
         return [
