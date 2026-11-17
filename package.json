@@ -1,0 +1,21 @@
+{
+  "name": "hospiflow",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "HOSPIFLOW — orchestration Node.js du développement module par module (API Laravel + Vue 3 + PostgreSQL)",
+  "scripts": {
+    "m00": "node scripts/m00-bootstrap.mjs",
+    "m01": "node scripts/m01-auth.mjs",
+    "m02": "node scripts/m02-facilities.mjs",
+    "m03": "node scripts/m03-patients.mjs",
+    "m04": "node scripts/m04-appointments.mjs",
+    "m05": "node scripts/m05-consultations.mjs",
+    "m06": "node scripts/m06-laboratory.mjs",
+    "m07": "node scripts/m07-pharmacy.mjs",
+    "m08": "node scripts/m08-billing.mjs",
+    "m09": "node scripts/m09-reports.mjs",
+    "m10": "node scripts/m10-pwa.mjs",
+    "export": "node scripts/export-project.mjs"
+  }
+}

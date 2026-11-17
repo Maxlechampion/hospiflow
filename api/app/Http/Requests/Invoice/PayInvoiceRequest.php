@@ -1,0 +1,33 @@
+<?php
+
+namespace App\Http\Requests\Invoice;
+
+use App\Models\Invoice;
+use Illuminate\Foundation\Http\FormRequest;
+
+class PayInvoiceRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        $invoice = Invoice::find($this->route('invoiceId'));
+
+        return $invoice !== null
+            && $this->user()->can('pay', $invoice);
+    }
+
+    public function rules(): array
+    {
+        return [
+            'amount' => ['required', 'integer', 'min:1', 'max:100000000'],
+            'method' => ['required', 'string', 'in:'.implode(',', Invoice::PAYMENT_METHODS)],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'amount.required' => 'Le montant encaissé est obligatoire.',
+            'method.in' => 'Mode de paiement invalide.',
+        ];
+    }
+}

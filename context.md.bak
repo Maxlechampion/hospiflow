@@ -1,0 +1,219 @@
+# HOSPIFLOW — Document de contexte du projet
+
+- **Fichier** : context.md
+- **Version** : 2.0 — état du développement consolidé
+- **Date** : 13 novembre 2026
+- **Statut** : modules M00 → M08 terminés et testés ; M09 et M10 restants
+- **Zone de lancement** : Bénin, extensible en Afrique de l'Ouest
+
+---
+
+## 1. Résumé exécutif
+
+HOSPIFLOW est une plateforme numérique de gestion hospitalière et de coordination
+du parcours patient, destinée aux cliniques privées, centres de santé et hôpitaux
+du Bénin, puis extensible à l'Afrique de l'Ouest.
+
+Principes du cadrage :
+
+- **Cloud-first** : aucun serveur local obligatoire.
+- **Hors ligne individuel** (M10) : chaque appareil autorisé garde des données
+  synchronisées et met ses opérations en attente pendant une coupure.
+- **Multi-établissements** : isolation logique stricte par tenant (facility).
+- **Dossier longitudinal fédéré** : identifiant réseau patient (MPI) lié aux
+  identifiants locaux (`P-XXX-0001`, réseau `HOSPIFLOW-XXXX-XX`).
+- **MVP sobre en coûts** : logiciels libres, français, devise XOF (montants entiers).
+- **HOSPIFLOW SHARE** : hors MVP initial, périmètre limité et consentements.
+
+---
+
+## 2. Stack technique (versions installées et fonctionnelles)
+
+| Composant | Version / Détail |
+|---|---|
+| OS | Windows (PowerShell) |
+| Node.js | v20.20.0 |
+| PHP | 8.3 (winget dans le PATH ; XAMPP 8.3.36 présent) |
+| Composer | 2.4.1 |
+| Laravel | 13.11.0 (dossier `api/`), Sanctum 4.4, Spatie Permission 8.5 |
+| Base de données | PostgreSQL 16.15, base `hospiflow`, utilisateur `hospiflow` |
+| Webapp | Vue 3 + Vite (dossier `web/`) |
+| Git | 2.51.0 |
+| Docker | non installé — PostgreSQL natif |
+
+⚠ Composer a un token GitHub OAuth expiré en global (peut faire échouer
+certains téléchargements depuis github.com).
+
+---
+
+## 3. Arborescence du projet
+
+```
+hospiflow/
+├── context.md                  ← ce document
+├── package.json                ← scripts npm run m00 … m08
+├── export-project.mjs          ← export complet du projet en .txt
+├── api/                        ← API Laravel 13 (PHP)
+│   ├── app/Http/Controllers/  ← un contrôleur par domaine
+│   ├── app/Models/             ← modèles Eloquent
+│   ├── database/migrations/
+│   ├── database/seeders/       ← seeder additif PAR MODULE
+│   └── routes/api.php          ← routes consolidées (régénéré à chaque module)
+├── web/                        ← webapp Vue 3 + Vite
+│   └── src/views/              ← une page par domaine
+└── scripts/                    ← harnais Node.js d'automatisation
+    ├── m0X/                    ← helpers.mjs, backend.mjs, frontend.mjs, e2e.mjs
+    └── m0X-<domaine>.mjs       ← orchestrateur du module
+```
+
+---
+
+## 4. Standards de développement (obligatoires pour tout nouveau module)
+
+Chaque module **MXX** suit le même harnais Node.js, lancé par `npm run mXX` :
+
+1. **Vérification des prérequis** — le module précédent doit être complet.
+2. **Backend** — migration idempotente (vérifie son existence avant création),
+   modèles, contrôleur, seeder de permissions **additif** (jamais de re-seed
+   destructif), régénération de `routes/api.php` consolidé.
+3. **Migrations + seed** — `php artisan migrate --force` puis seeder du module.
+4. **Frontend** — page Vue + lien dans le routeur et le tableau de bord.
+5. **E2E** — 10 tests de bout en bout sur un serveur `php artisan serve`
+   temporaire (port dédié par module) : fonctionnel, rejets 422, permissions
+   403, isolation inter-établissements, accès anonyme 401.
+
+Règles techniques issues des incidents rencontrés (à respecter scrupuleusement) :
+
+| Règle | Raison |
+|---|---|
+| Templates PHP/Vue/JS dans les scripts Node : **`String.raw`** obligatoire | empêche l'interprétation des `\` (corruption constatée en M03/M04) |
+| **Jamais deux comparaisons `==`/`===`/`!=`/`!<mark>` sur une même ligne**, ni dans le JS ni dans les templates générés | le copier-coller chat transforme `!</mark> x !==` en balises `<mark>` (corruption constatée en M02, M08) |
+| Après chaque copie de fichier de script : `Select-String -Path scripts\mXX\*.mjs -Pattern 'mark'` (ne doit rien renvoyer) | détecte la corruption `<mark>` avant l'exécution |
+| Vérification `node --check` sur chaque `.mjs` avant `npm run mXX` | syntaxe JS |
+| Vérifier que **chaque relation chargée dans un contrôleur existe dans le modèle** (`$model->load(...)`) | le défaut de relation `patient()` sur `Invoice` a causé un HTTP 500 en M08 |
+| Les `fail()` des tests E2E incluent le **corps de la réponse API** (helper `detail()`) | un 500 ne doit jamais masquer sa cause |
+| Vérification anti-carbone : `Select-String -Pattern 'IlluminateSupportCarbon'` (ne doit rien renvoyer) | détecte la perte des `\` dans les `use` PHP |
+
+Après un re-seed M01/M03 éventuel, **repasser tous les seeders additifs** des
+modules (consultations, laboratoire, pharmacie, facturation) depuis `api/`.
+
+---
+
+## 5. Statut des modules
+
+| Module | Domaine | Statut |
+|---|---|---|
+| M00 | Bootstrap (monorepo, Laravel, Vue, PostgreSQL) | ✅ Terminé |
+| M01 | Auth, rôles & permissions (Sanctum + Spatie) | ✅ Terminé |
+| M02 | Établissements (tenants, isolation stricte) | ✅ Terminé |
+| M03 | Patients & MPI (fédération, codes locaux/réseau) | ✅ Terminé |
+| M04 | Rendez-vous & agenda (conflits, statuts) | ✅ Terminé |
+| M05 | Consultations & suivi clinique | ✅ Terminé |
+| M06 | Laboratoire (prescription, résultats horodatés) | ✅ Terminé |
+| M07 | Pharmacie (catalogue, lots FEFO, péremption) | ✅ Terminé |
+| M08 | Facturation (FAC-…, encaissements XOF) | ✅ Terminé |
+| M09 | Rapports & statistiques | ⬜ Terminé (prochain) |
+| M10 | PWA / offline (Service Worker, IndexedDB, sync) | ⬜ À faire |
+
+---
+
+## 6. Permissions par module (seeders additifs)
+
+| Permission | Rôles |
+|---|---|
+| `users.manage` | admin |
+| `patients.view` | admin, medecin, infirmier, secretaire |
+| `patients.manage` | admin, medecin, secretaire |
+| `appointments.manage` | admin, secretaire, infirmier |
+| `consultations.view` / `consultations.manage` | M05 |
+| `lab.results.manage` (et permissions labo M06) | admin, laborantin |
+| `pharmacy.view` / `pharmacy.manage` (M07) | admin, pharmacien |
+| `billing.view` | admin, comptable, medecin |
+| `billing.manage` | admin, comptable |
+| `reports.view` | admin, medecin, comptable (réservé à M09) |
+
+## 7. Comptes de test
+
+| Compte | Identifiants | Périmètre |
+|---|---|---|
+| Admin | `admin@hospiflow.local` / `hospiflow_admin` | Tout, tous modules |
+| Secrétaire | `secretaire@hospiflow.local` / `hospiflow_sec` | Patients/RDV ; 403 ailleurs |
+| Autres rôles | medecin, infirmier, laborantin, pharmacien, comptable | posés par le seeder M01 |
+
+Établissements seedés : **HREF** (admin), **CSM** (secrétaire) — les tests E2E
+vérifient l'isolation HREF ↔ CSM sur chaque module.
+
+---
+
+## 8. Règles métier clés déjà implémentées
+
+- **Patients** : code local par établissement + identifiant réseau fédéré ;
+  isolation stricte ; rejet cross-établissement (422).
+- **RDV** : détection de conflits de créneaux ; statuts
+  scheduled / confirmed / done / cancelled / no_show.
+- **Consultations** : compte-rendu lié au RDV, marquage `done`, permissions
+  dédiées, isolation.
+- **Laboratoire** : prescription tracée, prise en charge, résultats horodatés,
+  doublons refusés (422).
+- **Pharmacie** : catalogue de médicaments partagé ; lots de stock par
+  établissement avec péremption ; dispensation **FEFO** transactionnelle
+  (décrément atomique) ; alertes `expiring_soon` ; surdispensation 422.
+- **Facturation** : factures par établissement, numérotation `FAC-00001`,
+  statuts draft → issued → paid (cancelled) ; lignes multiples, total en XOF
+  entier ; encaissements partiels (cash, mobile_money, transfer) avec
+  `lockForUpdate` ; sur-encaissement 422 ; annulation refusée si paiement
+  existant (422) ; facture paid verrouillée ; liaison consultation optionnelle.
+
+Toutes les routes sont scopées à l'établissement actif de l'utilisateur
+(`currentFacility`) ; 409 si aucun, 403 si désactivé.
+
+---
+
+## 9. Reste à faire
+
+### M09 — Rapports & statistiques
+- Endpoints d'agrégats scopés par établissement (activités patients/consultations/
+  dispensations/facturation, recouvrement, stocks bas, péremptions).
+- Permission `reports.view` déjà seedée en M01 (admin, medecin, comptable).
+- Page Vue « Rapports » avec filtres période.
+- Même harnais : `scripts/m09/` + `scripts/m09-reports.mjs` + E2E 10 tests.
+
+### M10 — PWA / offline
+- Service Worker, manifest, IndexedDB, file d'opérations idempotente,
+  synchronisation à la reconnexion (périmètre hors ligne individuel, cf. cadrage).
+
+### Après M10
+- Finalisation MVP, revue sécurité, documentation, préparation déploiement.
+
+---
+
+## 10. Commandes utiles
+
+```powershell
+# Vérifier les scripts d'un module avant exécution
+node --check scripts\m09\*.mjs   # (PowerShell : un fichier à la fois)
+Select-String -Path scripts\m09\*.mjs, scripts\m09-reports.mjs -Pattern 'mark'
+
+# Exécuter un module
+npm run m09
+
+# Lancer l'application en manuel (2 terminaux)
+cd api ; php artisan serve --host=127.0.0.1 --port=8000
+cd web ; npm run dev    # puis http://localhost:5173
+
+# Exporter tout le projet en un fichier texte (pour un nouveau chat)
+node export-project.mjs
+```
+
+---
+
+*Fin du document — HOSPIFLOW, développement modulaire automatisé, modules M00–M08 validés par tests E2E.*
+
+
+## Conventions techniques consolidées (M09)
+
+- Rapports : GET /api/reports/overview, /api/reports/revenue, /api/reports/stock (permission reports.view).
+- Routeur webapp : web/src/router/index.js — chemins en français (/facturation, /rapports).
+- Client API : web/src/api/client.js — api(chemin, { token, facilityId }), jeton Bearer explicite par appel.
+- Générateurs M09 adaptatifs : tables résolues via migrations, client API détecté depuis la vue Facturation.
+- Correctifs acquis : appels api(chemin) sans enveloppe (p), jeton d'authentification sur tous les appels /reports/*.

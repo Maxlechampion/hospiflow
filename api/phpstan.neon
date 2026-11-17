@@ -1,0 +1,27 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    paths:
+        - app/
+        - database/factories/
+        - database/seeders/
+
+    level: 5
+
+    ignoreErrors:
+        # PHPStan ne peut pas inferer le type des callbacks Collection::map() sur Eloquent
+        - '#Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection.*::map\(\) contains unresolvable type\.#'
+
+        # Proprietes dynamiques Eloquent
+        - '#Access to an undefined property .*::\$.*#'
+
+        # Helpers de factories : PHPStan ne voit pas l'usage via $this->xxx()
+        - '#Method Database\\Factories\\.*::(randLetters|randDigits|randPhone|randFrom)\(\) is unused\.#'
+
+    excludePaths:
+        - app/Http/Controllers/AuthController.php
+        - database/migrations/
+        - tests/
+
+    treatPhpDocTypesAsCertain: false

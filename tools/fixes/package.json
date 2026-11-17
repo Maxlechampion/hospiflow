@@ -1,0 +1,11 @@
+{
+  "name": "hospiflow-vague1-fixes",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "fix": "node run.mjs",
+    "fix:dry": "node run.mjs --dry-run"
+  },
+  "engines": { "node": ">=18" }
+}

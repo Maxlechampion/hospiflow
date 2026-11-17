@@ -1,0 +1,532 @@
+#!/usr/bin/env node
+// HOSPIFLOW — M09 (3/4) : frontend — page Rapports (auto-découverte du routeur)
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { ok, fail } from './helpers.mjs';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(HERE, '..', '..');
+const WEB = path.join(ROOT, 'web');
+const VIEWS = path.join(WEB, 'src', 'views');
+
+function firstNonSpace(text) {
+  const spaces = [' ', '\n', '\r', '\t'];
+  for (let i = 0; i < text.length; i += 1) {
+    if (!spaces.includes(text[i])) {
+      return i;
+    }
+  }
+  return text.length;
+}
+
+function walkSourceFiles(dir) {
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...walkSourceFiles(full));
+    } else if (entry.name.endsWith('.vue') || entry.name.endsWith('.js')) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
+function detectGetCall(source) {
+  const lines = source.split('\n');
+
+for (const line of lines) {
+    if (!line.includes('/invoices')) {
+      continue;
+    }
+
+const direct = line.match(/([\w.$]+)\(\s*['"`]\S*\/invoices/);
+
+if (direct) {
+      return direct[1];
+    }
+
+const loose = line.match(/([\w.$]+)\(\s*[^)]*\/invoices/);
+
+if (loose) {
+      return loose[1];
+    }
+  }
+
+return null;
+}
+
+function billingToReports(text) {
+  return text
+    .split('BillingView.vue').join('Reports.vue')
+    .split('BillingView').join('ReportsView')
+    .split('/facturation').join('/rapports')
+    .split('Billing').join('Reports')
+    .split('billing').join('reports')
+    .split('Facturation').join('Rapports')
+    .split('facturation').join('rapports');
+}
+
+// Clone toutes les déclarations (import, route, ligne de template)
+// référençant la facturation, dans un fichier donné.
+function cloneRegistrations(file) {
+  let src = fs.readFileSync(file, 'utf8');
+
+if (src.includes('ReportsView')) {
+    ok('Rapports déjà référencé dans ' + path.relative(ROOT, file));
+    return 'already';
+  }
+  if (src.includes('Rapports')) {
+    ok('Rapports déjà référencé dans ' + path.relative(ROOT, file));
+    return 'already';
+  }
+
+let anchor = null;
+
+if (src.includes('BillingView')) {
+    anchor = 'BillingView';
+  } else if (src.includes("'billing'")) {
+    anchor = "'billing'";
+  } else if (src.includes('"billing"')) {
+    anchor = '"billing"';
+  } else if (src.includes('/billing')) {
+    anchor = '/billing';
+  } else {
+    return null;
+  }
+
+let patched = 0;
+  let pos = 0;
+
+while (patched < 6) {
+    const idx = src.indexOf(anchor, pos);
+
+if (idx === -1) {
+      break;
+    }
+
+const lineStart = src.lastIndexOf('\n', idx) + 1;
+    let lineEnd = src.indexOf('\n', idx);
+
+if (lineEnd === -1) {
+      lineEnd = src.length;
+    }
+
+const lineText = src.slice(lineStart, lineEnd);
+    const trimmed = lineText.trim();
+
+// Cas 1 : import statique du composant → clone de l'import
+    if (trimmed.startsWith('import ')) {
+      src = src.slice(0, lineEnd) + '\n' + billingToReports(lineText) + src.slice(lineEnd);
+      patched += 1;
+      pos = lineEnd + 1;
+      continue;
+    }
+
+// Cas 2 : ligne de template (<BillingView .../>, bouton de menu) → clone de ligne
+    if (trimmed.startsWith('<')) {
+      src = src.slice(0, lineEnd) + '\n' + billingToReports(lineText) + src.slice(lineEnd);
+      patched += 1;
+      pos = lineEnd + 1;
+      continue;
+    }
+
+// Cas 3 : objet englobant { ... } (route de routeur, entrée de menu script)
+    const open = src.lastIndexOf('{', idx);
+
+if (open === -1) {
+      pos = idx + anchor.length;
+      continue;
+    }
+
+let depth = 0;
+    let close = -1;
+
+for (let i = open; i < src.length; i += 1) {
+      const ch = src[i];
+
+if (ch === '{') {
+        depth += 1;
+      }
+      if (ch === '}') {
+        depth -= 1;
+      }
+      if (depth === 0) {
+        close = i;
+        break;
+      }
+    }
+
+if (close === -1) {
+      pos = idx + anchor.length;
+      continue;
+    }
+
+if (close - open > 1200) {
+      pos = idx + anchor.length;
+      continue;
+    }
+
+const block = src.slice(open, close + 1);
+    const clone = billingToReports(block);
+
+const blockLineStart = src.lastIndexOf('\n', open) + 1;
+    let indent = '';
+
+for (const ch of src.slice(blockLineStart, open)) {
+      if (![' ', '\t'].includes(ch)) {
+        break;
+      }
+      indent += ch;
+    }
+
+const tail = src.slice(close + 1);
+    const offset = firstNonSpace(tail);
+
+if (tail[offset] === ',') {
+      const at = close + 1 + offset + 1;
+      src = src.slice(0, at) + '\n' + indent + clone + src.slice(at);
+      pos = at + 1;
+    } else {
+      const at = close + 1;
+      src = src.slice(0, at) + ',\n' + indent + clone + src.slice(at);
+      pos = at + 2;
+    }
+
+patched += 1;
+  }
+
+if (patched === 0) {
+    return null;
+  }
+
+fs.writeFileSync(file, src, 'utf8');
+  ok('Rapports : ' + patched + ' référence(s) ajoutée(s) dans ' + path.relative(ROOT, file));
+  return 'patched';
+}
+
+const REPORTS_TEMPLATE = String.raw`<script setup>
+import { onMounted, ref } from 'vue';
+__IMPORT__
+
+function unwrap(res) {
+  if (res && res.data) {
+    return res.data;
+  }
+  return res;
+}
+
+function isoDate(offsetDays) {
+  return new Date(Date.now() + offsetDays * 86400000).toISOString().slice(0, 10);
+}
+
+const from = ref(isoDate(-29));
+const to = ref(isoDate(0));
+const loading = ref(false);
+const error = ref('');
+const overview = ref(null);
+const revenue = ref(null);
+const stock = ref(null);
+
+const appointmentLabels = {
+  scheduled: 'Planifiés',
+  confirmed: 'Confirmés',
+  done: 'Honorés',
+  cancelled: 'Annulés',
+  no_show: 'Absents',
+};
+
+const methodLabels = {
+  cash: 'Espèces',
+  mobile_money: 'Mobile Money',
+  transfer: 'Virement',
+};
+
+function label(map, key) {
+  return map[key] || key;
+}
+
+function xof(value) {
+  return new Intl.NumberFormat('fr-FR').format(Number(value)) + ' XOF';
+}
+
+async function load() {
+  loading.value = true;
+  error.value = '';
+
+try {
+    const query = '?from=' + from.value + '&to=' + to.value;
+    const o = unwrap(await __GET__('/reports/overview' + query));
+    const r = unwrap(await __GET__('/reports/revenue' + query));
+    const s = unwrap(await __GET__('/reports/stock'));
+    overview.value = o.report;
+    revenue.value = r.report;
+    stock.value = s.report;
+  } catch (e) {
+    error.value = 'Erreur de chargement : ' + (e && e.message ? e.message : String(e));
+  }
+
+loading.value = false;
+}
+
+onMounted(load);
+</script>
+
+<template>
+  <section class="reports-page">
+    <h1>Rapports &amp; statistiques</h1>
+
+<p v-if="error" class="error">{{ error }}</p>
+
+<form class="filters" @submit.prevent="load">
+      <label>Du <input v-model="from" type="date" /></label>
+      <label>au <input v-model="to" type="date" /></label>
+      <button type="submit" :disabled="loading">
+        {{ loading ? 'Chargement…' : 'Actualiser' }}
+      </button>
+    </form>
+
+<div v-if="overview" class="grid">
+      <article class="card">
+        <h2>Patients</h2>
+        <p class="big">{{ overview.patients.total }}</p>
+        <p>{{ overview.patients.new_in_period }} nouveau(x) sur la période</p>
+      </article>
+
+<article class="card">
+        <h2>Rendez-vous (période)</h2>
+        <ul>
+          <li v-for="(total, status) in overview.appointments_by_status" :key="status">
+            {{ label(appointmentLabels, status) }} : {{ total }}
+          </li>
+        </ul>
+      </article>
+
+<article class="card">
+        <h2>Activité clinique</h2>
+        <p>Consultations : {{ overview.consultations_in_period }}</p>
+        <p>Dispensations pharmacie : {{ overview.dispensations_in_period }}</p>
+        <ul>
+          <li v-for="(total, status) in overview.lab_requests_by_status" :key="status">
+            Labo « {{ status }} » : {{ total }}
+          </li>
+        </ul>
+      </article>
+
+<article class="card">
+        <h2>Facturation (période)</h2>
+        <p>Factures émises : {{ overview.billing.invoices_in_period }}</p>
+        <p>Facturé : {{ xof(overview.billing.billed_in_period) }}</p>
+        <p>Encaissé : {{ xof(overview.billing.paid_in_period) }}</p>
+        <p>Reste à recouvrer (factures émises) : {{ xof(overview.billing.outstanding_total) }}</p>
+        <p>
+          Recouvrement :
+          {{ overview.billing.recovery_rate_percent === null ? '—' : overview.billing.recovery_rate_percent + ' %' }}
+        </p>
+      </article>
+    </div>
+
+<div v-if="revenue" class="grid">
+      <article class="card">
+        <h2>Encaissements par jour</h2>
+        <p class="big">{{ xof(revenue.paid_total) }}</p>
+        <table>
+          <thead><tr><th>Jour</th><th>Montant</th></tr></thead>
+          <tbody>
+            <tr v-for="day in revenue.daily" :key="day.day">
+              <td>{{ day.day }}</td>
+              <td>{{ xof(day.total) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+
+<article class="card">
+        <h2>Par mode de paiement</h2>
+        <table>
+          <thead><tr><th>Mode</th><th>Montant</th></tr></thead>
+          <tbody>
+            <tr v-for="entry in revenue.by_method" :key="entry.method">
+              <td>{{ label(methodLabels, entry.method) }}</td>
+              <td>{{ xof(entry.total) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+    </div>
+
+<div v-if="stock" class="grid">
+      <article class="card">
+        <h2>Stocks bas (≤ {{ stock.low_stock_threshold }})</h2>
+        <table>
+          <thead><tr><th>Médicament</th><th>Quantité</th></tr></thead>
+          <tbody>
+            <tr v-for="item in stock.low_stock" :key="item.drug">
+              <td>{{ item.drug }}</td>
+              <td>{{ item.total_quantity }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+
+<article class="card">
+        <h2>Péremption ≤ {{ stock.expiring_window_days }} jours</h2>
+        <table>
+          <thead><tr><th>Médicament</th><th>Qté</th><th>Échéance</th><th>Jours</th></tr></thead>
+          <tbody>
+            <tr v-for="lot in stock.expiring_lots" :key="lot.drug + '-' + lot.expiry_date">
+              <td>{{ lot.drug }}</td>
+              <td>{{ lot.quantity }}</td>
+              <td>{{ lot.expiry_date }}</td>
+              <td>{{ lot.days_left }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+    </div>
+  </section>
+</template>
+
+<style scoped>
+.reports-page { display: flex; flex-direction: column; gap: 16px; }
+.filters { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.filters label { font-weight: 600; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.card { border: 1px solid #d1d5db; border-radius: 8px; padding: 16px; background: #fff; }
+.card h2 { margin: 0 0 8px; font-size: 1rem; }
+.big { font-size: 1.6rem; font-weight: 700; margin: 4px 0; }
+.error { color: #b91c1c; font-weight: 600; }
+table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #e5e7eb; }
+ul { padding-left: 18px; margin: 8px 0 0; }
+</style>
+`;
+
+export function installFrontend() {
+  // 1. Vue de référence (M08)
+  const viewFiles = fs.readdirSync(VIEWS).filter((f) => f.endsWith('.vue'));
+  let billingName = viewFiles.find((f) => f.toLowerCase().includes('billing'));
+
+if (!billingName) {
+    billingName = viewFiles.find((f) => fs.readFileSync(path.join(VIEWS, f), 'utf8').includes('/invoices'));
+  }
+
+if (!billingName) {
+    fail('Vue Facturation introuvable dans web/src/views — installez M08 d\'abord.');
+  }
+
+const billingPath = path.join(VIEWS, billingName);
+  const billingSource = fs.readFileSync(billingPath, 'utf8');
+  const billingLines = billingSource.split('\n');
+
+const importLine = billingLines.find((l) => l.trim().startsWith('import ') && l.includes('client'))
+    || billingLines.find((l) => l.trim().startsWith('import ') && l.includes('api'));
+
+if (!importLine) {
+    fail('Import du client API introuvable dans ' + billingName + ' — collez-moi ce fichier.');
+  }
+
+const clientCall = detectGetCall(billingSource);
+
+if (!clientCall) {
+    fail('Appel GET introuvable dans ' + billingName + ' — collez-moi ce fichier.');
+  }
+
+const getCall = clientCall.includes('.') ? clientCall + '(p)' : clientCall;
+
+// 2. Écriture de la page Rapports
+  const reportsVue = REPORTS_TEMPLATE
+    .split('__IMPORT__').join(importLine.trim())
+    .split('__GET__').join(getCall);
+
+fs.writeFileSync(path.join(VIEWS, 'Reports.vue'), reportsVue, 'utf8');
+  ok('Page Rapports écrite (client détecté : ' + clientCall + ')');
+
+// 3. Auto-découverte : tout fichier de web/src référençant la facturation
+  const allFiles = walkSourceFiles(path.join(WEB, 'src')).filter((file) => {
+    if (file === billingPath) {
+      return false;
+    }
+    if (file === path.join(VIEWS, 'Reports.vue')) {
+      return false;
+    }
+    return true;
+  });
+
+  const withBilling = allFiles.filter((file) => {
+    const src = fs.readFileSync(file, 'utf8');
+
+return /BillingView|\/facturation|Facturation|billing/i.test(src);
+  });
+
+withBilling.sort((a, b) => {
+    const aRank = fs.readFileSync(a, 'utf8').includes('BillingView') ? 0 : 1;
+    const bRank = fs.readFileSync(b, 'utf8').includes('BillingView') ? 0 : 1;
+    return aRank - bRank;
+  });
+
+let references = 0;
+
+for (const file of withBilling) {
+    const result = cloneRegistrations(file);
+
+if (result === 'patched') {
+      references += 1;
+    }
+    if (result === 'already') {
+      references += 1;
+    }
+  }
+
+if (references === 0) {
+    fail('Aucun routeur/menu référençant la facturation n\'a été trouvé dans web/src. '
+      + 'Lancez : Get-ChildItem -Recurse web\\src -Include *.js,*.vue | Select-String -Pattern billing -List '
+      + 'et collez-moi les fichiers listés.');
+  }
+
+// 4. Filet de sécurité : menus « Facturation » non détectés ci-dessus
+    const navCandidates = allFiles.filter((file) => {
+    const src = fs.readFileSync(file, 'utf8');
+
+if (!/Facturation|\/facturation/i.test(src)) {
+      return false;
+    }
+    if (src.includes('Rapports')) {
+      return false;
+    }
+    return true;
+  });
+
+for (const navFile of navCandidates) {
+    const lines = fs.readFileSync(navFile, 'utf8').split('\n');
+    const rebuilt = [];
+    let navUpdated = false;
+
+for (const line of lines) {
+      rebuilt.push(line);
+
+if (navUpdated) {
+        continue;
+      }
+      if (!line.includes('Facturation')) {
+        continue;
+      }
+      if (!line.includes('billing')) {
+        continue;
+      }
+
+rebuilt.push(billingToReports(line));
+      navUpdated = true;
+    }
+
+if (navUpdated) {
+      fs.writeFileSync(navFile, rebuilt.join('\n'), 'utf8');
+      ok('Lien « Rapports » ajouté dans ' + path.relative(ROOT, navFile));
+    }
+  }
+
+if (navCandidates.length === 0) {
+    ok('Menu : aucun lien « Facturation » additionnel à cloner');
+  }
+}

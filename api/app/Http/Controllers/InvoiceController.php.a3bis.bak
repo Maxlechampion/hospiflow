@@ -1,0 +1,309 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Consultation;
+use App\Models\Facility;
+use App\Models\Invoice;
+use App\Models\InvoiceItem;
+use App\Models\Patient;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+
+class InvoiceController extends Controller
+{
+    public function index(Request $request): JsonResponse
+    {
+        $this->authorizeView($request);
+
+$facility = $this->currentFacility($request);
+
+$query = Invoice::inFacility($facility)
+            ->with(['patient:id,local_code,first_name,last_name'])
+            ->withSum('payments as paid_amount', 'amount')
+            ->orderByDesc('created_at');
+
+$patientId = $request->query('patient_id');
+
+if ($patientId !== null) {
+            $query->where('patient_id', (int) $patientId);
+        }
+
+$status = $request->query('status');
+
+if ($status) {
+            $query->where('status', $status);
+        }
+
+return response()->json([
+            'invoices' => $query->get()
+                ->map(fn ($i) => $this->payload($i)),
+        ]);
+    }
+
+public function store(Request $request): JsonResponse
+    {
+        $this->authorizeManage($request);
+
+$facility = $this->currentFacility($request);
+
+$data = $request->validate([
+            'patient_id' => ['required', 'integer', 'exists:patients,id'],
+            'consultation_id' => ['nullable', 'integer', 'exists:consultations,id'],
+            'due_date' => ['nullable', 'date', 'after:today'],
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.label' => ['required', 'string', 'max:300'],
+            'items.*.quantity' => ['required', 'integer', 'min:1', 'max:10000'],
+            'items.*.unit_price' => ['required', 'integer', 'min:0', 'max:100000000'],
+        ], [
+            'patient_id.exists' => 'Patient inconnu.',
+            'consultation_id.exists' => 'Consultation inconnue.',
+            'items.required' => 'La facture doit contenir au moins une ligne.',
+            'due_date.after' => 'L\'échéance doit être future.',
+        ]);
+
+$patient = Patient::inFacility($facility)->find($data['patient_id']);
+
+if (! $patient) {
+            abort(422, 'Ce patient n\'existe pas dans votre établissement.');
+        }
+
+$consultation = null;
+
+if (! empty($data['consultation_id'])) {
+            $consultation = Consultation::inFacility($facility)->find($data['consultation_id']);
+
+if (! $consultation) {
+                abort(422, 'Cette consultation n\'existe pas dans votre établissement.');
+            }
+        }
+
+$invoice = DB::transaction(function () use ($facility, $patient, $consultation, $data, $request) {
+            $total = 0;
+
+foreach ($data['items'] as $item) {
+                $total += $item['quantity'] * $item['unit_price'];
+            }
+
+$record = Invoice::create([
+                'facility_id' => $facility->id,
+                'patient_id' => $patient->id,
+                'consultation_id' => $consultation?->id,
+                'created_by' => $request->user()->id,
+                'number' => 'TMP-' . uniqid(),
+                'status' => 'draft',
+                'total_amount' => $total,
+                'due_date' => $data['due_date'] ?? null,
+            ]);
+
+$record->number = 'FAC-' . str_pad((string) $record->id, 5, '0', STR_PAD_LEFT);
+            $record->save();
+
+foreach ($data['items'] as $item) {
+                InvoiceItem::create([
+                    'invoice_id' => $record->id,
+                    'label' => $item['label'],
+                    'quantity' => $item['quantity'],
+                    'unit_price' => $item['unit_price'],
+                    'amount' => $item['quantity'] * $item['unit_price'],
+                ]);
+            }
+
+return $record;
+        });
+
+return response()->json(
+            ['invoice' => $this->payload($invoice->load(
+                'patient:id,local_code,first_name,last_name',
+                'items',
+                'payments'
+            ))],
+            201
+        );
+    }
+
+public function show(Request $request, int $invoiceId): JsonResponse
+    {
+        $this->authorizeView($request);
+
+$facility = $this->currentFacility($request);
+
+$invoice = Invoice::inFacility($facility)
+            ->with(['patient:id,local_code,first_name,last_name', 'items', 'payments'])
+            ->withSum('payments as paid_amount', 'amount')
+            ->findOrFail($invoiceId);
+
+return response()->json([
+            'invoice' => $this->payload($invoice),
+        ]);
+    }
+
+public function update(Request $request, int $invoiceId): JsonResponse
+    {
+        $this->authorizeManage($request);
+
+$facility = $this->currentFacility($request);
+
+$invoice = Invoice::inFacility($facility)->findOrFail($invoiceId);
+
+$data = $request->validate([
+            'status' => ['required', 'string', 'in:issued,cancelled'],
+        ], [
+            'status.in' => 'Transition invalide (émettre ou annuler uniquement).',
+        ]);
+
+if ($invoice->status === 'paid') {
+            abort(422, 'Cette facture est payée et ne peut plus être modifiée.');
+        }
+
+if ($invoice->status === 'cancelled') {
+            abort(422, 'Cette facture est annulée et ne peut plus être modifiée.');
+        }
+
+if ($data['status'] === 'cancelled') {
+            $paid = (int) $invoice->payments()->sum('amount');
+
+if ($paid > 0) {
+                abort(422, 'Impossible d\'annuler une facture ayant encaissé ' . $paid . ' XOF.');
+            }
+        }
+
+if ($data['status'] === 'issued') {
+            if ($invoice->status !== 'draft') {
+                abort(422, 'Seule une facture brouillon peut être émise.');
+            }
+        }
+
+$invoice->status = $data['status'];
+        $invoice->save();
+
+return response()->json([
+            'invoice' => $this->payload($invoice->fresh()->load(
+                'patient:id,local_code,first_name,last_name',
+                'items',
+                'payments'
+            )),
+        ]);
+    }
+
+public function pay(Request $request, int $invoiceId): JsonResponse
+    {
+        $this->authorizeManage($request);
+
+$facility = $this->currentFacility($request);
+
+$data = $request->validate([
+            'amount' => ['required', 'integer', 'min:1', 'max:100000000'],
+            'method' => ['required', 'string', 'in:' . implode(',', Invoice::PAYMENT_METHODS)],
+        ], [
+            'amount.required' => 'Le montant encaissé est obligatoire.',
+            'method.in' => 'Mode de paiement invalide.',
+        ]);
+
+$invoice = DB::transaction(function () use ($facility, $invoiceId, $data, $request) {
+            $record = Invoice::inFacility($facility)
+                ->with(['patient:id,local_code,first_name,last_name', 'items', 'payments'])
+                ->lockForUpdate()
+                ->findOrFail($invoiceId);
+
+if ($record->status !== 'issued') {
+                abort(422, 'Seule une facture émise peut être encaissée (statut actuel : ' . $record->status . ').');
+            }
+
+$paid = (int) $record->payments()->sum('amount');
+            $remaining = $record->total_amount - $paid;
+
+if ($data['amount'] > $remaining) {
+                abort(422, 'Montant supérieur au reste à payer (' . $remaining . ' XOF).');
+            }
+
+$record->payments()->create([
+                'amount' => $data['amount'],
+                'method' => $data['method'],
+                'received_by' => $request->user()->id,
+                'paid_at' => now(),
+            ]);
+
+$paid += $data['amount'];
+
+if ($paid >= $record->total_amount) {
+                $record->status = 'paid';
+                $record->save();
+            }
+
+return $record->fresh()->load(
+                'patient:id,local_code,first_name,last_name',
+                'items',
+                'payments'
+            );
+        });
+
+return response()->json([
+            'invoice' => $this->payload($invoice),
+        ]);
+    }
+
+private function payload(Invoice $i): array
+    {
+        $paidAmount = (int) ($i->paid_amount ?? $i->payments->sum('amount'));
+
+return [
+            'id' => $i->id,
+            'number' => $i->number,
+            'patient' => [
+                'id' => $i->patient->id,
+                'local_code' => $i->patient->local_code,
+                'first_name' => $i->patient->first_name,
+                'last_name' => $i->patient->last_name,
+            ],
+            'consultation_id' => $i->consultation_id,
+            'status' => $i->status,
+            'total_amount' => (int) $i->total_amount,
+            'paid_amount' => $paidAmount,
+            'remaining_amount' => (int) $i->total_amount - $paidAmount,
+            'due_date' => $i->due_date?->format('Y-m-d'),
+            'items' => $i->items->map(fn ($item) => [
+                'label' => $item->label,
+                'quantity' => $item->quantity,
+                'unit_price' => (int) $item->unit_price,
+                'amount' => (int) $item->amount,
+            ]),
+            'payments' => $i->payments->map(fn ($p) => [
+                'amount' => (int) $p->amount,
+                'method' => $p->method,
+                'paid_at' => $p->paid_at->format('Y-m-d H:i'),
+            ]),
+            'created_at' => $i->created_at->format('Y-m-d H:i'),
+        ];
+    }
+
+private function currentFacility(Request $request): Facility
+    {
+        $facility = $request->user()->currentFacility;
+
+if (! $facility) {
+            abort(409, 'Aucun établissement actif. Choisissez-en un dans Établissements.');
+        }
+
+if (! $facility->is_active) {
+            abort(403, 'Votre établissement actif est désactivé.');
+        }
+
+return $facility;
+    }
+
+private function authorizeView(Request $request): void
+    {
+        if (! $request->user()->can('billing.view')) {
+            abort(403, 'Vous n\'avez pas accès à la facturation.');
+        }
+    }
+
+private function authorizeManage(Request $request): void
+    {
+        if (! $request->user()->can('billing.manage')) {
+            abort(403, 'Vous n\'avez pas le droit de gérer la facturation.');
+        }
+    }
+}

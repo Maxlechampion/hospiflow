@@ -1,0 +1,198 @@
+<script setup>
+import { onMounted, ref } from 'vue';
+import { api } from '../api/client';
+import { useAuthStore } from '../stores/auth';
+
+const auth = useAuthStore();
+
+function unwrap(res) {
+  if (res && res.data) {
+    return res.data;
+  }
+  return res;
+}
+
+function isoDate(offsetDays) {
+  return new Date(Date.now() + offsetDays * 86400000).toISOString().slice(0, 10);
+}
+
+const from = ref(isoDate(-29));
+const to = ref(isoDate(0));
+const loading = ref(false);
+const error = ref('');
+const overview = ref(null);
+const revenue = ref(null);
+const stock = ref(null);
+
+const appointmentLabels = {
+  scheduled: 'Planifiés',
+  confirmed: 'Confirmés',
+  done: 'Honorés',
+  cancelled: 'Annulés',
+  no_show: 'Absents',
+};
+
+const methodLabels = {
+  cash: 'Espèces',
+  mobile_money: 'Mobile Money',
+  transfer: 'Virement',
+};
+
+function label(map, key) {
+  return map[key] || key;
+}
+
+function xof(value) {
+  return new Intl.NumberFormat('fr-FR').format(Number(value)) + ' XOF';
+}
+
+async function load() {
+  loading.value = true;
+  error.value = '';
+
+try {
+    const query = '?from=' + from.value + '&to=' + to.value;
+    const o = unwrap(await api('/reports/overview' + query, { token: auth.token }));
+    const r = unwrap(await api('/reports/revenue' + query, { token: auth.token }));
+    const s = unwrap(await api('/reports/stock', { token: auth.token }));
+    overview.value = o.report;
+    revenue.value = r.report;
+    stock.value = s.report;
+  } catch (e) {
+    error.value = 'Erreur de chargement : ' + (e && e.message ? e.message : String(e));
+  }
+
+loading.value = false;
+}
+
+onMounted(load);
+</script>
+
+<template>
+  <section class="reports-page">
+    <h1>Rapports &amp; statistiques</h1>
+
+<p v-if="error" class="error">{{ error }}</p>
+
+<form class="filters" @submit.prevent="load">
+      <label>Du <input v-model="from" type="date" /></label>
+      <label>au <input v-model="to" type="date" /></label>
+      <button type="submit" :disabled="loading">
+        {{ loading ? 'Chargement…' : 'Actualiser' }}
+      </button>
+    </form>
+
+<div v-if="overview" class="grid">
+      <article class="card">
+        <h2>Patients</h2>
+        <p class="big">{{ overview.patients.total }}</p>
+        <p>{{ overview.patients.new_in_period }} nouveau(x) sur la période</p>
+      </article>
+
+<article class="card">
+        <h2>Rendez-vous (période)</h2>
+        <ul>
+          <li v-for="(total, status) in overview.appointments_by_status" :key="status">
+            {{ label(appointmentLabels, status) }} : {{ total }}
+          </li>
+        </ul>
+      </article>
+
+<article class="card">
+        <h2>Activité clinique</h2>
+        <p>Consultations : {{ overview.consultations_in_period }}</p>
+        <p>Dispensations pharmacie : {{ overview.dispensations_in_period }}</p>
+        <ul>
+          <li v-for="(total, status) in overview.lab_requests_by_status" :key="status">
+            Labo « {{ status }} » : {{ total }}
+          </li>
+        </ul>
+      </article>
+
+<article class="card">
+        <h2>Facturation (période)</h2>
+        <p>Factures émises : {{ overview.billing.invoices_in_period }}</p>
+        <p>Facturé : {{ xof(overview.billing.billed_in_period) }}</p>
+        <p>Encaissé : {{ xof(overview.billing.paid_in_period) }}</p>
+        <p>Reste à recouvrer (factures émises) : {{ xof(overview.billing.outstanding_total) }}</p>
+        <p>
+          Recouvrement :
+          {{ overview.billing.recovery_rate_percent === null ? '—' : overview.billing.recovery_rate_percent + ' %' }}
+        </p>
+      </article>
+    </div>
+
+<div v-if="revenue" class="grid">
+      <article class="card">
+        <h2>Encaissements par jour</h2>
+        <p class="big">{{ xof(revenue.paid_total) }}</p>
+        <table>
+          <thead><tr><th>Jour</th><th>Montant</th></tr></thead>
+          <tbody>
+            <tr v-for="day in revenue.daily" :key="day.day">
+              <td>{{ day.day }}</td>
+              <td>{{ xof(day.total) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+
+<article class="card">
+        <h2>Par mode de paiement</h2>
+        <table>
+          <thead><tr><th>Mode</th><th>Montant</th></tr></thead>
+          <tbody>
+            <tr v-for="entry in revenue.by_method" :key="entry.method">
+              <td>{{ label(methodLabels, entry.method) }}</td>
+              <td>{{ xof(entry.total) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+    </div>
+
+<div v-if="stock" class="grid">
+      <article class="card">
+        <h2>Stocks bas (≤ {{ stock.low_stock_threshold }})</h2>
+        <table>
+          <thead><tr><th>Médicament</th><th>Quantité</th></tr></thead>
+          <tbody>
+            <tr v-for="item in stock.low_stock" :key="item.drug">
+              <td>{{ item.drug }}</td>
+              <td>{{ item.total_quantity }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+
+<article class="card">
+        <h2>Péremption ≤ {{ stock.expiring_window_days }} jours</h2>
+        <table>
+          <thead><tr><th>Médicament</th><th>Qté</th><th>Échéance</th><th>Jours</th></tr></thead>
+          <tbody>
+            <tr v-for="lot in stock.expiring_lots" :key="lot.drug + '-' + lot.expiry_date">
+              <td>{{ lot.drug }}</td>
+              <td>{{ lot.quantity }}</td>
+              <td>{{ lot.expiry_date }}</td>
+              <td>{{ lot.days_left }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+    </div>
+  </section>
+</template>
+
+<style scoped>
+.reports-page { display: flex; flex-direction: column; gap: 16px; }
+.filters { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.filters label { font-weight: 600; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.card { border: 1px solid #d1d5db; border-radius: 8px; padding: 16px; background: #fff; }
+.card h2 { margin: 0 0 8px; font-size: 1rem; }
+.big { font-size: 1.6rem; font-weight: 700; margin: 4px 0; }
+.error { color: #b91c1c; font-weight: 600; }
+table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #e5e7eb; }
+ul { padding-left: 18px; margin: 8px 0 0; }
+</style>

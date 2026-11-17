@@ -1,0 +1,65 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\Activitylog\Contracts\Activity;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
+
+class Patient extends Model
+{
+    use HasFactory, LogsActivity, SoftDeletes;
+
+    protected $fillable = [
+        'facility_id',
+        'mpi_id',
+        'local_code',
+        'first_name',
+        'last_name',
+        'date_of_birth',
+        'gender',
+        'phone',
+        'address',
+        'blood_group',
+        'allergies',
+    ];
+
+    protected $casts = [
+        'date_of_birth' => 'date:Y-m-d',
+    ];
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logOnly(['first_name', 'last_name', 'date_of_birth', 'gender', 'phone', 'address', 'blood_group', 'allergies'])
+            ->logOnlyDirty()
+            ->dontSubmitEmptyLogs()
+            ->useLogName('patient');
+    }
+
+    public function tapActivity(Activity $activity): void
+    {
+        $activity->properties = $activity->properties->merge([
+            'facility_id' => $this->facility_id,
+        ]);
+    }
+
+    public function facility(): BelongsTo
+    {
+        return $this->belongsTo(Facility::class);
+    }
+
+    public function mpi(): BelongsTo
+    {
+        return $this->belongsTo(MasterPatientIndex::class, 'mpi_id');
+    }
+
+    public function scopeInFacility($query, Facility $facility)
+    {
+        return $query->where('facility_id', $facility->id);
+    }
+}

@@ -1,0 +1,46 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
+
+class MasterPatientIndex extends Model
+{
+    use HasFactory;
+
+    public $incrementing = false;
+
+    protected $keyType = 'string';
+
+    protected $table = 'master_patient_index';
+
+    protected $fillable = [
+        'id',
+        'hospiflow_code',
+        'first_name',
+        'last_name',
+        'date_of_birth',
+        'gender',
+        'phone',
+    ];
+
+    protected static function booted(): void
+    {
+        static::creating(function (self $mpi) {
+            if (empty($mpi->id)) {
+                $mpi->id = Str::uuid()->toString();
+            }
+
+            if (empty($mpi->hospiflow_code)) {
+                $mpi->hospiflow_code = 'HF-'.strtoupper(bin2hex(random_bytes(6)));
+            }
+        });
+    }
+
+    public function patients()
+    {
+        return $this->hasMany(Patient::class, 'mpi_id');
+    }
+}

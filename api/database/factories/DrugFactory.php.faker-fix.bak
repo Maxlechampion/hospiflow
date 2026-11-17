@@ -1,0 +1,22 @@
+<?php
+
+namespace Database\Factories;
+
+use App\Models\Drug;
+use Illuminate\Database\Eloquent\Factories\Factory;
+
+class DrugFactory extends Factory
+{
+    protected $model = Drug::class;
+
+    public function definition(): array
+    {
+        return [
+            'name' => $this->faker->unique()->word() . ' ' . $this->faker->numberBetween(100, 1000) . 'mg',
+            'form' => $this->faker->randomElement(['comprimé', 'sirop', 'injectable', 'gélule']),
+            'dosage' => $this->faker->numberBetween(1, 10) . 'mg',
+            'unit' => $this->faker->randomElement(['boîte', 'flacon', 'ampoule']),
+            'is_active' => true,
+        ];
+    }
+}
