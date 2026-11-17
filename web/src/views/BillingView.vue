@@ -1,353 +1,317 @@
-<script setup>
-import { onMounted, ref } from 'vue';
-import { api } from '../api/client';
-import { useAuthStore } from '../stores/auth';
-
-const auth = useAuthStore();
-
-const invoices = ref([]);
-const patients = ref([]);
-const error = ref('');
-
-const filterPatientId = ref('');
-const filterStatus = ref('');
-
-const patientId = ref('');
-const dueDate = ref('');
-const lines = ref([{ label: '', quantity: 1, unit_price: 0 }]);
-
-const payTarget = ref(null);
-const payAmount = ref('');
-const payMethod = ref('cash');
-
-const STATUS_LABELS = {
-  draft: 'Brouillon',
-  issued: 'Émise',
-  paid: 'Payée',
-  cancelled: 'Annulée',
-};
-
-const METHOD_LABELS = {
-  cash: 'Espèces',
-  mobile_money: 'Mobile Money',
-  transfer: 'Virement',
-};
-
-function addLine() {
-  lines.value.push({ label: '', quantity: 1, unit_price: 0 });
-}
-
-function removeLine(index) {
-  if (lines.value.length > 1) {
-    lines.value.splice(index, 1);
-  }
-}
-
-function formatXof(amount) {
-  return Number(amount).toLocaleString('fr-FR') + ' XOF';
-}
-
-async function loadInvoices() {
-  error.value = '';
-  try {
-    const params = new URLSearchParams();
-
-if (filterPatientId.value) params.set('patient_id', filterPatientId.value);
-    if (filterStatus.value) params.set('status', filterStatus.value);
-
-const suffix = params.toString() ? '?' + params.toString() : '';
-    const data = await api('/invoices' + suffix, { token: auth.token });
-    invoices.value = data.invoices;
-  } catch (exception) {
-    error.value = exception.message;
-  }
-}
-
-async function loadPatients() {
-  try {
-    const patientsData = await api('/patients', { token: auth.token });
-    patients.value = patientsData.patients;
-  } catch (exception) {
-    error.value = exception.message;
-  }
-}
-
-async function createInvoice() {
-  error.value = '';
-  try {
-    await api('/invoices', {
-      method: 'POST',
-      token: auth.token,
-      body: {
-        patient_id: Number(patientId.value),
-        due_date: dueDate.value || null,
-        items: lines.value
-          .filter((line) => line.label.trim() && line.quantity > 0)
-          .map((line) => ({
-            label: line.label.trim(),
-            quantity: Number(line.quantity),
-            unit_price: Number(line.unit_price),
-          })),
-      },
-    });
-    patientId.value = '';
-    dueDate.value = '';
-    lines.value = [{ label: '', quantity: 1, unit_price: 0 }];
-    await loadInvoices();
-  } catch (exception) {
-    error.value = exception.message;
-  }
-}
-
-async function setStatus(invoiceId, status) {
-  error.value = '';
-  try {
-    await api('/invoices/' + invoiceId, {
-      method: 'PATCH',
-      token: auth.token,
-      body: { status },
-    });
-    await loadInvoices();
-  } catch (exception) {
-    error.value = exception.message;
-  }
-}
-
-function openPayForm(invoice) {
-  payTarget.value = invoice;
-  payAmount.value = invoice.remaining_amount;
-  payMethod.value = 'cash';
-}
-
-async function submitPayment() {
-  error.value = '';
-  try {
-    await api('/invoices/' + payTarget.value.id + '/payments', {
-      method: 'POST',
-      token: auth.token,
-      body: {
-        amount: Number(payAmount.value),
-        method: payMethod.value,
-      },
-    });
-    payTarget.value = null;
-    await loadInvoices();
-  } catch (exception) {
-    error.value = exception.message;
-  }
-}
-
-onMounted(async () => {
-  await loadPatients();
-  await loadInvoices();
-});
-</script>
-
 <template>
-  <main class="page">
-    <header>
-      <strong>HOSPIFLOW</strong>
-      <nav>
-        <router-link to="/">Tableau de bord</router-link>
-        <router-link to="/patients">Patients</router-link>
-        <router-link to="/appointments">Rendez-vous</router-link>
-        <router-link to="/consultations">Consultations</router-link>
-        <router-link to="/laboratoire">Laboratoire</router-link>
-        <router-link to="/pharmacie">Pharmacie</router-link>
-        <router-link to="/facilities">Établissements</router-link>
-      </nav>
-    </header>
+  <div class="space-y-6">
+    <!-- En-tête -->
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div>
+        <h1 class="text-2xl font-bold text-slate-900">Facturation</h1>
+        <p class="text-slate-500 text-sm mt-1">Gérez vos factures et encaissements.</p>
+      </div>
+      <div class="flex gap-3">
+        <button class="bg-white text-slate-700 border border-slate-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors shadow-sm flex items-center gap-2">
+          <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+          Exporter
+        </button>
+        <button @click="openCreateModal" class="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors shadow-sm flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+          Nouvelle facture
+        </button>
+      </div>
+    </div>
 
-<section class="content">
-      <h1>Facturation</h1>
+    <!-- Filtres -->
+    <div class="flex flex-wrap items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+      <div class="relative flex-1 min-w-[200px]">
+        <input 
+          v-model="searchQuery"
+          @input="debouncedSearch"
+          type="text" 
+          placeholder="Rechercher par numéro ou patient..." 
+          class="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all text-sm"
+        >
+        <svg class="w-5 h-5 text-slate-400 absolute left-3 top-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+      </div>
+      <select v-model="statusFilter" @change="fetchInvoices" class="px-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-primary-500 focus:border-primary-500">
+        <option value="">Tous les statuts</option>
+        <option value="draft">Brouillon</option>
+        <option value="issued">Émise</option>
+        <option value="paid">Payée</option>
+        <option value="cancelled">Annulée</option>
+      </select>
+    </div>
 
-<p v-if="error" class="error">{{ error }}</p>
-
-<form class="filters" @submit.prevent="loadInvoices">
-        <label>
-          Patient
-          <select v-model="filterPatientId">
-            <option value="">Tous</option>
-            <option v-for="patient in patients" :key="patient.id" :value="patient.id">
-              {{ patient.last_name }} {{ patient.first_name }} ({{ patient.local_code }})
-            </option>
-          </select>
-        </label>
-        <label>
-          Statut
-          <select v-model="filterStatus">
-            <option value="">Tous</option>
-            <option value="draft">Brouillon</option>
-            <option value="issued">Émise</option>
-            <option value="paid">Payée</option>
-            <option value="cancelled">Annulée</option>
-          </select>
-        </label>
-        <button type="submit">Afficher</button>
-      </form>
-
-<table v-if="invoices.length">
-        <thead>
+    <!-- Tableau des factures -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <table class="w-full text-left text-sm whitespace-nowrap">
+        <thead class="bg-slate-50 text-slate-500 border-b border-slate-200">
           <tr>
-            <th>N°</th>
-            <th>Date</th>
-            <th>Patient</th>
-            <th>Total</th>
-            <th>Payé</th>
-            <th>Reste</th>
-            <th>Statut</th>
-            <th>Actions</th>
+            <th class="px-6 py-4 font-medium">N° Facture</th>
+            <th class="px-6 py-4 font-medium">Patient</th>
+            <th class="px-6 py-4 font-medium">Date</th>
+            <th class="px-6 py-4 font-medium">Montant</th>
+            <th class="px-6 py-4 font-medium">Statut</th>
+            <th class="px-6 py-4 font-medium text-right">Actions</th>
           </tr>
         </thead>
-        <tbody>
-          <tr v-for="invoice in invoices" :key="invoice.id">
-            <td>{{ invoice.number }}</td>
-            <td>{{ invoice.created_at }}</td>
-            <td>
-              {{ invoice.patient.last_name }} {{ invoice.patient.first_name }}
-              <br />
-              <small>{{ invoice.patient.local_code }}</small>
+        <tbody class="divide-y divide-slate-100">
+          <tr v-if="loading" class="text-center">
+            <td colspan="6" class="px-6 py-8 text-slate-500">Chargement des factures...</td>
+          </tr>
+          <tr v-else-if="invoices.length === 0" class="text-center">
+            <td colspan="6" class="px-6 py-8 text-slate-500">Aucune facture trouvée.</td>
+          </tr>
+          <tr v-for="invoice in invoices" :key="invoice.id" class="hover:bg-slate-50 transition-colors group">
+            <td class="px-6 py-4 font-medium text-slate-900">{{ invoice.number }}</td>
+            <td class="px-6 py-4">
+              <div class="font-medium text-slate-900">{{ invoice.patient.first_name }} {{ invoice.patient.last_name }}</div>
+              <div class="text-xs text-slate-500">{{ invoice.patient.local_code }}</div>
             </td>
-            <td>{{ formatXof(invoice.total_amount) }}</td>
-            <td>{{ formatXof(invoice.paid_amount) }}</td>
-            <td>{{ formatXof(invoice.remaining_amount) }}</td>
-            <td>
-              <span class="badge" :class="invoice.status">
-                {{ STATUS_LABELS[invoice.status] || invoice.status }}
+            <td class="px-6 py-4 text-slate-500">{{ formatDate(invoice.created_at) }}</td>
+            <td class="px-6 py-4">
+              <div class="font-bold text-slate-900">{{ invoice.total_amount.toLocaleString() }} XOF</div>
+              <div v-if="invoice.remaining_amount > 0 && invoice.status !== 'cancelled'" class="text-xs text-red-500">Reste: {{ invoice.remaining_amount.toLocaleString() }} XOF</div>
+            </td>
+            <td class="px-6 py-4">
+              <span 
+                class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border"
+                :class="{
+                  'bg-slate-100 text-slate-700 border-slate-200': invoice.status === 'draft',
+                  'bg-blue-50 text-blue-700 border-blue-200': invoice.status === 'issued',
+                  'bg-emerald-50 text-emerald-700 border-emerald-200': invoice.status === 'paid',
+                  'bg-red-50 text-red-700 border-red-200': invoice.status === 'cancelled'
+                }"
+              >
+                {{ statusLabels[invoice.status] }}
               </span>
             </td>
-            <td class="actions">
-              <button
-                v-if="invoice.status === 'draft'"
-                @click="setStatus(invoice.id, 'issued')"
-              >
-                Émettre
-              </button>
-              <button
-                v-if="invoice.status === 'issued'"
-                @click="openPayForm(invoice)"
+            <td class="px-6 py-4 text-right">
+              <button 
+                v-if="invoice.status === 'issued' && invoice.remaining_amount > 0"
+                @click="openPaymentModal(invoice)"
+                class="text-sm font-medium text-emerald-600 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-md transition-colors"
               >
                 Encaisser
               </button>
-              <button
-                v-if="invoice.status === 'draft' || invoice.status === 'issued'"
-                @click="setStatus(invoice.id, 'cancelled')"
+              <button 
+                v-else
+                class="text-sm font-medium text-primary-600 hover:text-primary-800 opacity-0 group-hover:opacity-100 transition-opacity"
               >
-                Annuler
+                Voir détail
               </button>
             </td>
           </tr>
         </tbody>
       </table>
+    </div>
 
-<p v-else>Aucune facture pour ce filtre.</p>
-
-<form v-if="payTarget" class="card" @submit.prevent="submitPayment">
-        <h2>Encaissement — {{ payTarget.number }} (reste {{ formatXof(payTarget.remaining_amount) }})</h2>
-
-<label>
-          Montant (XOF)
-          <input v-model="payAmount" type="number" min="1" required />
-        </label>
-
-<label>
-          Mode
-          <select v-model="payMethod">
-            <option value="cash">Espèces</option>
-            <option value="mobile_money">Mobile Money</option>
-            <option value="transfer">Virement</option>
-          </select>
-        </label>
-
-<button type="submit">Enregistrer le paiement</button>
-        <button type="button" class="secondary" @click="payTarget = null">
-          Annuler
-        </button>
-      </form>
-
-<form class="card" @submit.prevent="createInvoice">
-        <h2>Nouvelle facture</h2>
-
-<label>
-          Patient
-          <select v-model="patientId" required>
-            <option value="" disabled>— Choisir un patient —</option>
-            <option v-for="patient in patients" :key="patient.id" :value="patient.id">
-              {{ patient.last_name }} {{ patient.first_name }} ({{ patient.local_code }})
-            </option>
-          </select>
-        </label>
-
-<label>
-          Échéance
-          <input v-model="dueDate" type="date" />
-        </label>
-
-<fieldset class="lines">
-          <legend>Lignes de facture</legend>
-
-<div v-for="(line, index) in lines" :key="index" class="line">
-            <label class="grow">
-              Libellé
-              <input v-model="line.label" placeholder="Consultation générale" />
-            </label>
-            <label>
-              Qté
-              <input v-model="line.quantity" type="number" min="1" />
-            </label>
-            <label>
-              Prix unitaire
-              <input v-model="line.unit_price" type="number" min="0" />
-            </label>
-            <button type="button" class="secondary" @click="removeLine(index)">×</button>
+    <!-- MODAL : Création de facture -->
+    <div v-if="showCreateModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm overflow-y-auto">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl my-8">
+        <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center sticky top-0 bg-white z-10 rounded-t-xl">
+          <h3 class="text-lg font-semibold text-slate-900">Nouvelle facture</h3>
+          <button @click="closeCreateModal" class="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        
+        <div class="p-6 space-y-5">
+          <!-- Patient -->
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Patient *</label>
+            <select v-model="newInvoice.patient_id" class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-primary-500 focus:border-primary-500">
+              <option value="" disabled>Sélectionnez un patient</option>
+              <option v-for="p in patientList" :key="p.id" :value="p.id">{{ p.first_name }} {{ p.last_name }} ({{ p.local_code }})</option>
+            </select>
           </div>
 
-<button type="button" class="secondary" @click="addLine">Ajouter une ligne</button>
-        </fieldset>
+          <!-- Lignes de facturation -->
+          <div>
+            <div class="flex justify-between items-center mb-2">
+              <label class="block text-sm font-medium text-slate-700">Lignes *</label>
+              <button @click="addItem" class="text-xs font-medium text-primary-600 hover:text-primary-800">+ Ajouter une ligne</button>
+            </div>
+            
+            <div class="space-y-3">
+              <div v-for="(item, index) in newInvoice.items" :key="index" class="flex gap-3 items-start bg-slate-50 p-3 rounded-lg border border-slate-100">
+                <div class="flex-1">
+                  <input v-model="item.label" type="text" placeholder="Désignation (ex: Consultation)" class="w-full px-3 py-1.5 border border-slate-300 rounded text-sm mb-2">
+                  <div class="flex gap-2">
+                    <input v-model.number="item.quantity" type="number" min="1" placeholder="Qté" class="w-20 px-3 py-1.5 border border-slate-300 rounded text-sm">
+                    <input v-model.number="item.unit_price" type="number" min="0" placeholder="Prix unitaire" class="flex-1 px-3 py-1.5 border border-slate-300 rounded text-sm">
+                  </div>
+                </div>
+                <button @click="removeItem(index)" class="text-red-400 hover:text-red-600 p-1 mt-1">✕</button>
+              </div>
+            </div>
+          </div>
 
-<button type="submit">Créer la facture</button>
-      </form>
-    </section>
-  </main>
+          <!-- Total -->
+          <div class="flex justify-between items-center pt-4 border-t border-slate-200">
+            <span class="font-medium text-slate-600">Total à facturer :</span>
+            <span class="text-2xl font-bold text-primary-600">{{ computedTotal.toLocaleString() }} XOF</span>
+          </div>
+        </div>
+
+        <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-3 rounded-b-xl">
+          <button @click="closeCreateModal" class="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800">Annuler</button>
+          <button @click="createInvoice" :disabled="saving" class="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 disabled:opacity-50">
+            {{ saving ? 'Création...' : 'Créer en brouillon' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL : Encaissement -->
+    <div v-if="showPaymentModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-emerald-50">
+          <h3 class="text-lg font-semibold text-emerald-900">Encaisser la facture {{ selectedInvoice?.number }}</h3>
+          <button @click="closePaymentModal" class="text-emerald-700 hover:text-emerald-900">✕</button>
+        </div>
+        
+        <div class="p-6 space-y-4">
+          <div class="bg-slate-50 p-4 rounded-lg flex justify-between items-center border border-slate-200">
+            <span class="text-sm font-medium text-slate-600">Reste à payer</span>
+            <span class="text-lg font-bold text-slate-900">{{ selectedInvoice?.remaining_amount.toLocaleString() }} XOF</span>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Montant reçu</label>
+            <input v-model.number="payment.amount" type="number" max="selectedInvoice?.remaining_amount" class="w-full px-3 py-2 border border-slate-300 rounded-md text-lg font-bold focus:ring-emerald-500 focus:border-emerald-500">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Mode de paiement</label>
+            <select v-model="payment.method" class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-emerald-500 focus:border-emerald-500">
+              <option value="cash">Espèces</option>
+              <option value="mobile_money">Mobile Money</option>
+              <option value="transfer">Virement</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
+          <button @click="closePaymentModal" class="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800">Annuler</button>
+          <button @click="processPayment" :disabled="savingPayment" class="px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-50">
+            {{ savingPayment ? 'Encaissement...' : 'Confirmer' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
-<style scoped>
-.page { min-height: 100vh; }
-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem 2rem;
-  background: #fff;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 6%);
+<script setup>
+import { ref, computed, onMounted } from 'vue'
+import apiClient from '@/api/client'
+
+const invoices = ref([])
+const loading = ref(true)
+const searchQuery = ref('')
+const statusFilter = ref('')
+
+const statusLabels = {
+  draft: 'Brouillon',
+  issued: 'Émise',
+  paid: 'Payée',
+  cancelled: 'Annulée'
 }
-header strong { color: #0d6efd; letter-spacing: .05em; }
-nav { display: flex; gap: 1.2rem; flex-wrap: wrap; }
-nav a { color: #1f2937; text-decoration: none; }
-nav a:hover { text-decoration: underline; }
-.content { padding: 2rem; max-width: 1200px; }
-.error { color: #dc2626; }
-.filters { display: flex; gap: .8rem; align-items: end; margin-bottom: 1.2rem; }
-.filters label { display: grid; gap: .25rem; font-size: .9rem; }
-.filters button { padding: .5rem 1rem; border: 0; border-radius: 8px; background: #0d6efd; color: #fff; cursor: pointer; }
-table { border-collapse: collapse; width: 100%; background: #fff; border-radius: 8px; overflow: hidden; }
-th, td { padding: .55rem .8rem; border-bottom: 1px solid #e5e7eb; text-align: left; font-size: .9rem; }
-th { background: #f3f4f6; }
-.badge { padding: .15rem .6rem; border-radius: 999px; font-size: .8rem; background: #e5e7eb; color: #374151; }
-.badge.draft { background: #f3f4f6; color: #6b7280; }
-.badge.issued { background: #e0e7ff; color: #3730a3; }
-.badge.paid { background: #dcfce7; color: #166534; }
-.badge.cancelled { background: #fee2e2; color: #991b1b; }
-.actions { display: flex; gap: .35rem; flex-wrap: wrap; }
-.actions button { padding: .25rem .55rem; border: 0; border-radius: 6px; background: #0d6efd; color: #fff; cursor: pointer; font-size: .78rem; }
-.card { margin-top: 2rem; display: grid; gap: .6rem; max-width: 640px; background: #fff; padding: 1.5rem; border-radius: 8px; }
-.card h2 { margin: 0 0 .3rem; font-size: 1.1rem; }
-label { display: grid; gap: .25rem; font-size: .9rem; }
-input, select { padding: .5rem .7rem; border: 1px solid #d1d5db; border-radius: 8px; font-size: .95rem; }
-.lines { border: 1px solid #e5e7eb; border-radius: 8px; padding: .8rem; display: grid; gap: .5rem; }
-.lines legend { font-size: .9rem; padding: 0 .4rem; }
-.line { display: grid; grid-template-columns: 1fr 90px 130px auto; gap: .5rem; align-items: end; }
-.line .grow { grid-column: 1 / 2; }
-.card button { padding: .6rem; border: 0; border-radius: 8px; background: #0d6efd; color: #fff; cursor: pointer; }
-.card button.secondary { background: #6b7280; }
-</style>
+
+// --- Création ---
+const showCreateModal = ref(false)
+const saving = ref(false)
+const patientList = ref([])
+const newInvoice = ref({ patient_id: '', items: [{ label: '', quantity: 1, unit_price: 0 }] })
+
+const computedTotal = computed(() => {
+  return newInvoice.value.items.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0)
+})
+
+// --- Paiement ---
+const showPaymentModal = ref(false)
+const savingPayment = ref(false)
+const selectedInvoice = ref(null)
+const payment = ref({ amount: 0, method: 'cash' })
+
+let searchTimeout = null
+
+const debouncedSearch = () => {
+  clearTimeout(searchTimeout)
+  searchTimeout = setTimeout(fetchInvoices, 300)
+}
+
+const fetchInvoices = async () => {
+  loading.value = true
+  try {
+    let url = '/invoices?'
+    if (statusFilter.value) url += `status=${statusFilter.value}&`
+    const { data } = await apiClient.get(url)
+    invoices.value = data.invoices
+  } catch (error) {
+    console.error('Erreur chargement factures', error)
+  } finally {
+    loading.value = false
+  }
+}
+
+const fetchPatients = async () => {
+  try {
+    const { data } = await apiClient.get('/patients')
+    patientList.value = data.patients
+  } catch (error) {
+    console.error(error)
+  }
+}
+
+const openCreateModal = () => {
+  newInvoice.value = { patient_id: '', items: [{ label: '', quantity: 1, unit_price: 0 }] }
+  showCreateModal.value = true
+}
+
+const closeCreateModal = () => showCreateModal.value = false
+
+const addItem = () => newInvoice.value.items.push({ label: '', quantity: 1, unit_price: 0 })
+const removeItem = (index) => {
+  if (newInvoice.value.items.length > 1) newInvoice.value.items.splice(index, 1)
+}
+
+const createInvoice = async () => {
+  saving.value = true
+  try {
+    await apiClient.post('/invoices', newInvoice.value)
+    closeCreateModal()
+    fetchInvoices()
+  } catch (error) {
+    alert("Erreur lors de la création : " + (error.response?.data?.error?.message || error.message))
+  } finally {
+    saving.value = false
+  }
+}
+
+const openPaymentModal = (invoice) => {
+  selectedInvoice.value = invoice
+  payment.value = { amount: invoice.remaining_amount, method: 'cash' }
+  showPaymentModal.value = true
+}
+
+const closePaymentModal = () => showPaymentModal.value = false
+
+const processPayment = async () => {
+  savingPayment.value = true
+  try {
+    await apiClient.post(`/invoices/${selectedInvoice.value.id}/payments`, payment.value)
+    closePaymentModal()
+    fetchInvoices()
+  } catch (error) {
+    alert("Erreur d'encaissement : " + (error.response?.data?.error?.message || error.message))
+  } finally {
+    savingPayment.value = false
+  }
+}
+
+const formatDate = (dateString) => {
+  if (!dateString) return '-'
+  return new Date(dateString).toLocaleDateString('fr-FR')
+}
+
+onMounted(() => {
+  fetchInvoices()
+  fetchPatients()
+})
+</script>

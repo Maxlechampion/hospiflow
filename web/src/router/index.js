@@ -1,80 +1,35 @@
-import { createRouter, createWebHistory } from 'vue-router';
-import { useAuthStore } from '../stores/auth';
-import LoginView from '../views/LoginView.vue';
+import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/login', component: LoginView },
+    { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue') },
     {
-      path: '/',
-      component: () => import('../views/DashboardView.vue'),
+      path: '/app',
+      component: () => import('@/layouts/DashboardLayout.vue'),
       meta: { requiresAuth: true },
+      children: [
+        { path: '', redirect: '/app/dashboard' },
+        { path: 'dashboard', name: 'dashboard', component: () => import('@/views/DashboardView.vue') },
+        { path: 'patients', name: 'patients', component: () => import('@/views/PatientsView.vue') },
+        { path: 'appointments', name: 'appointments', component: () => import('@/views/AppointmentsView.vue') },
+        { path: 'consultations', name: 'consultations', component: () => import('@/views/ConsultationsView.vue') },
+        { path: 'pharmacy', name: 'pharmacy', component: () => import('@/views/PharmacyView.vue') },
+        { path: 'lab', name: 'lab', component: () => import('@/views/LabView.vue') },
+        { path: 'billing', name: 'billing', component: () => import('@/views/BillingView.vue') },
+        { path: 'reports', name: 'reports', component: () => import('@/views/Reports.vue') },
+      ]
     },
-    {
-      path: '/facilities',
-      component: () => import('../views/FacilitiesView.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/patients',
-      component: () => import('../views/PatientsView.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/appointments',
-      component: () => import('../views/AppointmentsView.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/consultations',
-      component: () => import('../views/ConsultationsView.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/laboratoire',
-      component: () => import('../views/LabView.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/pharmacie',
-      component: () => import('../views/PharmacyView.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/facturation',
-      component: () => import('../views/BillingView.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/rapports',
-      component: () => import('../views/Reports.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/rapports',
-      component: () => import('../views/Reports.vue'),
-      meta: { requiresAuth: true },
-    },
-        {
-      path: '/rapports',
-      component: () => import('../views/Reports.vue'),
-      meta: { requiresAuth: true },
-    },
-    { path: '/:pathMatch(.*)*', redirect: '/' },
-  ],
-});
+    { path: '/', redirect: '/login' }
+  ]
+})
 
-router.beforeEach((to) => {
-  const auth = useAuthStore();
-
-if (to.meta.requiresAuth && !auth.isAuthenticated) {
-    return '/login';
+router.beforeEach(async (to) => {
+  const authStore = useAuthStore()
+  if (to.meta.requiresAuth && !authStore.isAuthenticated) {
+    return { name: 'login' }
   }
+})
 
-if (to.path === '/login' && auth.isAuthenticated) {
-    return '/';
-  }
-});
-
-export default router;
+export default router

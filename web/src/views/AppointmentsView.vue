@@ -1,271 +1,109 @@
-<script setup>
-import { onMounted, ref } from 'vue';
-import { api } from '../api/client';
-import { useAuthStore } from '../stores/auth';
-
-const auth = useAuthStore();
-
-const appointments = ref([]);
-const patients = ref([]);
-const practitioners = ref([]);
-const error = ref('');
-const loading = ref(false);
-
-const today = new Date().toISOString().slice(0, 10);
-const filterDate = ref(today);
-
-const patientId = ref('');
-const practitionerId = ref('');
-const scheduledAt = ref('');
-const durationMinutes = ref(30);
-const reason = ref('');
-
-const STATUS_LABELS = {
-  scheduled: 'Planifié',
-  confirmed: 'Confirmé',
-  done: 'Réalisé',
-  cancelled: 'Annulé',
-  no_show: 'Absent',
-};
-
-async function loadAppointments() {
-  loading.value = true;
-  error.value = '';
-  try {
-    const params = filterDate.value
-      ? '?date=' + encodeURIComponent(filterDate.value)
-      : '';
-    const data = await api('/appointments' + params, { token: auth.token });
-    appointments.value = data.appointments;
-  } catch (exception) {
-    error.value = exception.message;
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function loadReferences() {
-  try {
-    const patientsData = await api('/patients', { token: auth.token });
-    patients.value = patientsData.patients;
-  } catch (exception) {
-    error.value = exception.message;
-  }
-  try {
-    const practitionersData = await api('/appointments/practitioners', {
-      token: auth.token,
-    });
-    practitioners.value = practitionersData.practitioners;
-  } catch (exception) {
-    error.value = exception.message;
-  }
-}
-
-async function createAppointment() {
-  error.value = '';
-  try {
-    await api('/appointments', {
-      method: 'POST',
-      token: auth.token,
-      body: {
-        patient_id: Number(patientId.value),
-        practitioner_id: Number(practitionerId.value),
-        scheduled_at: scheduledAt.value,
-        duration_minutes: Number(durationMinutes.value),
-        reason: reason.value.trim() || null,
-      },
-    });
-    patientId.value = '';
-    practitionerId.value = '';
-    scheduledAt.value = '';
-    durationMinutes.value = 30;
-    reason.value = '';
-    await loadAppointments();
-  } catch (exception) {
-    error.value = exception.message;
-  }
-}
-
-async function setStatus(appointmentId, status) {
-  error.value = '';
-  try {
-    await api('/appointments/' + appointmentId, {
-      method: 'PATCH',
-      token: auth.token,
-      body: { status },
-    });
-    await loadAppointments();
-  } catch (exception) {
-    error.value = exception.message;
-  }
-}
-
-onMounted(async () => {
-  await loadReferences();
-  await loadAppointments();
-});
-</script>
-
 <template>
-  <main class="page">
-    <header>
-      <strong>HOSPIFLOW</strong>
-      <nav>
-        <router-link to="/">Tableau de bord</router-link>
-        <router-link to="/patients">Patients</router-link>
-        <router-link to="/facilities">Établissements</router-link>
-      </nav>
-    </header>
+  <div class="space-y-6">
+    <div class="flex justify-between items-center">
+      <div>
+        <h1 class="text-2xl font-bold text-slate-900">Rendez-vous</h1>
+        <p class="text-slate-500 text-sm mt-1">Gérez l'agenda de vos praticiens.</p>
+      </div>
+      <button class="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors shadow-sm">
+        + Nouveau RDV
+      </button>
+    </div>
 
-<section class="content">
-      <h1>Rendez-vous</h1>
+    <!-- Filtre date -->
+    <div class="flex flex-col sm:flex-row gap-4 mb-6">
+      <div class="relative flex-1 max-w-md">
+        <input 
+          v-model="searchQuery"
+          @input="debouncedSearch"
+          type="text" 
+          placeholder="Rechercher un patient..." 
+          class="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all text-sm"
+        >
+        <svg class="w-5 h-5 text-slate-400 absolute left-3 top-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+      </div>
+      <input type="date" v-model="selectedDate" @change="fetchAppointments" class="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-primary-500 focus:border-primary-500">
+    </div>
 
-<p v-if="error" class="error">{{ error }}</p>
-
-<form class="filters" @submit.prevent="loadAppointments">
-        <label>
-          Date
-          <input v-model="filterDate" type="date" />
-        </label>
-        <button type="submit">Afficher</button>
-        <button type="button" @click="filterDate = ''">Tout</button>
-      </form>
-
-<table v-if="appointments.length">
-        <thead>
+    <!-- Liste -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <table class="w-full text-left text-sm">
+        <thead class="bg-slate-50 text-slate-500 border-b border-slate-200">
           <tr>
-            <th>Heure</th>
-            <th>Patient</th>
-            <th>Praticien</th>
-            <th>Motif</th>
-            <th>Durée</th>
-            <th>Statut</th>
-            <th>Actions</th>
+            <th class="px-6 py-4 font-medium">Heure</th>
+            <th class="px-6 py-4 font-medium">Patient</th>
+            <th class="px-6 py-4 font-medium">Praticien</th>
+            <th class="px-6 py-4 font-medium">Motif</th>
+            <th class="px-6 py-4 font-medium">Statut</th>
           </tr>
         </thead>
-        <tbody>
-          <tr v-for="appointment in appointments" :key="appointment.id">
-            <td>{{ appointment.scheduled_at }}</td>
-            <td>
-              {{ appointment.patient.last_name }} {{ appointment.patient.first_name }}
-              <br />
-              <small>{{ appointment.patient.local_code }}</small>
+        <tbody class="divide-y divide-slate-100">
+          <tr v-if="loading" class="text-center">
+            <td colspan="5" class="px-6 py-8 text-slate-500">Chargement...</td>
+          </tr>
+          <tr v-else-if="appointments.length === 0" class="text-center">
+            <td colspan="5" class="px-6 py-8 text-slate-500">Aucun rendez-vous pour cette date.</td>
+          </tr>
+          <tr v-for="appt in appointments" :key="appt.id" class="hover:bg-slate-50 transition-colors">
+            <td class="px-6 py-4 font-medium text-slate-900">{{ formatTime(appt.scheduled_at) }}</td>
+            <td class="px-6 py-4">
+              <div class="font-medium text-slate-900">{{ appt.patient.first_name }} {{ appt.patient.last_name }}</div>
+              <div class="text-xs text-slate-500">{{ appt.patient.local_code }}</div>
             </td>
-            <td>{{ appointment.practitioner.name }}</td>
-            <td>{{ appointment.reason || '—' }}</td>
-            <td>{{ appointment.duration_minutes }} min</td>
-            <td>
-              <span class="badge" :class="appointment.status">
-                {{ STATUS_LABELS[appointment.status] || appointment.status }}
+            <td class="px-6 py-4 text-slate-600">Dr. {{ appt.practitioner.name }}</td>
+            <td class="px-6 py-4 text-slate-600">{{ appt.reason || '-' }}</td>
+            <td class="px-6 py-4">
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                {{ appt.status }}
               </span>
-            </td>
-            <td class="actions">
-              <button
-                v-if="appointment.status === 'scheduled'"
-                @click="setStatus(appointment.id, 'confirmed')"
-              >
-                Confirmer
-              </button>
-              <button
-                v-if="appointment.status === 'confirmed'"
-                @click="setStatus(appointment.id, 'done')"
-              >
-                Réalisé
-              </button>
-              <button
-                v-if="appointment.status !== 'cancelled'"
-                @click="setStatus(appointment.id, 'cancelled')"
-              >
-                Annuler
-              </button>
             </td>
           </tr>
         </tbody>
       </table>
-
-<p v-else-if="!loading">Aucun rendez-vous pour cette date.</p>
-
-<form class="create" @submit.prevent="createAppointment">
-        <h2>Nouveau rendez-vous</h2>
-
-<label>
-          Patient
-          <select v-model="patientId" required>
-            <option value="" disabled>— Choisir un patient —</option>
-            <option v-for="patient in patients" :key="patient.id" :value="patient.id">
-              {{ patient.last_name }} {{ patient.first_name }} ({{ patient.local_code }})
-            </option>
-          </select>
-        </label>
-
-<label>
-          Praticien
-          <select v-model="practitionerId" required>
-            <option value="" disabled>— Choisir un praticien —</option>
-            <option
-              v-for="practitioner in practitioners"
-              :key="practitioner.id"
-              :value="practitioner.id"
-            >
-              {{ practitioner.name }}
-            </option>
-          </select>
-        </label>
-
-<label>
-          Date et heure
-          <input v-model="scheduledAt" type="datetime-local" required />
-        </label>
-
-<label>
-          Durée (minutes)
-          <input v-model="durationMinutes" type="number" min="5" max="480" step="5" />
-        </label>
-
-<label>
-          Motif
-          <input v-model="reason" placeholder="Consultation générale…" />
-        </label>
-
-<button type="submit">Enregistrer</button>
-      </form>
-    </section>
-  </main>
+    </div>
+  </div>
 </template>
 
-<style scoped>
-.page { min-height: 100vh; }
-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem 2rem;
-  background: #fff;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 6%);
+<script setup>
+import { ref, onMounted } from 'vue'
+import apiClient from '@/api/client'
+
+const appointments = ref([])
+const searchQuery = ref('')
+const loading = ref(true)
+const selectedDate = ref(new Date().toISOString().split('T')[0])
+
+let searchTimeout = null
+const debouncedSearch = () => {
+  clearTimeout(searchTimeout)
+  searchTimeout = setTimeout(() => fetchAppointments(), 300)
 }
-header strong { color: #0d6efd; letter-spacing: .05em; }
-nav { display: flex; gap: 1.2rem; }
-nav a { color: #1f2937; text-decoration: none; }
-nav a:hover { text-decoration: underline; }
-.content { padding: 2rem; max-width: 1000px; }
-.error { color: #dc2626; }
-.filters { display: flex; gap: .8rem; align-items: end; margin-bottom: 1.2rem; }
-.filters label { display: grid; gap: .25rem; font-size: .9rem; }
-.filters button { padding: .5rem 1rem; border: 0; border-radius: 8px; background: #0d6efd; color: #fff; cursor: pointer; }
-table { border-collapse: collapse; width: 100%; background: #fff; border-radius: 8px; overflow: hidden; }
-th, td { padding: .55rem .8rem; border-bottom: 1px solid #e5e7eb; text-align: left; font-size: .9rem; }
-th { background: #f3f4f6; }
-.badge { padding: .15rem .6rem; border-radius: 999px; font-size: .8rem; background: #e5e7eb; color: #374151; }
-.badge.scheduled { background: #e0e7ff; color: #3730a3; }
-.badge.confirmed { background: #dcfce7; color: #166534; }
-.badge.done { background: #d1fae5; color: #065f46; }
-.badge.cancelled { background: #fee2e2; color: #991b1b; }
-.badge.no_show { background: #fef3c7; color: #92400e; }
-.actions { display: flex; gap: .35rem; flex-wrap: wrap; }
-.actions button { padding: .25rem .55rem; border: 0; border-radius: 6px; background: #0d6efd; color: #fff; cursor: pointer; font-size: .78rem; }
-.create { margin-top: 2rem; display: grid; gap: .6rem; max-width: 460px; background: #fff; padding: 1.5rem; border-radius: 8px; }
-.create h2 { margin: 0 0 .3rem; font-size: 1.1rem; }
-label { display: grid; gap: .25rem; font-size: .9rem; }
-input, select { padding: .5rem .7rem; border: 1px solid #d1d5db; border-radius: 8px; font-size: .95rem; }
-.create button { padding: .6rem; border: 0; border-radius: 8px; background: #0d6efd; color: #fff; cursor: pointer; }
-</style>
+
+const fetchAppointments = async () => {
+  loading.value = true
+  try {
+    const { data } = await apiClient.get(`/appointments?date=${selectedDate.value}`)
+    let list = data.appointments;
+    if (searchQuery.value.trim()) {
+      const q = searchQuery.value.toLowerCase();
+      list = list.filter(a => 
+        a.patient.first_name.toLowerCase().includes(q) || 
+        a.patient.last_name.toLowerCase().includes(q)
+      );
+    }
+    appointments.value = list;
+  } catch (error) {
+    console.error('Erreur chargement RDV', error)
+  } finally {
+    loading.value = false
+  }
+}
+
+const formatTime = (dateString) => {
+  return new Date(dateString).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+}
+
+onMounted(() => {
+  fetchAppointments()
+})
+</script>

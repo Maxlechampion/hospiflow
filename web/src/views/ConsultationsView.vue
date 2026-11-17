@@ -1,226 +1,256 @@
-<script setup>
-import { onMounted, ref } from 'vue';
-import { api } from '../api/client';
-import { useAuthStore } from '../stores/auth';
-
-const auth = useAuthStore();
-
-const consultations = ref([]);
-const patients = ref([]);
-const appointments = ref([]);
-const error = ref('');
-
-const filterPatientId = ref('');
-
-const patientId = ref('');
-const appointmentId = ref('');
-const chiefComplaint = ref('');
-const examination = ref('');
-const diagnosis = ref('');
-const treatment = ref('');
-const followUpDate = ref('');
-
-async function loadConsultations() {
-  error.value = '';
-  try {
-    const suffix = filterPatientId.value
-      ? '?patient_id=' + filterPatientId.value
-      : '';
-    const data = await api('/consultations' + suffix, { token: auth.token });
-    consultations.value = data.consultations;
-  } catch (exception) {
-    error.value = exception.message;
-  }
-}
-
-async function loadReferences() {
-  try {
-    const patientsData = await api('/patients', { token: auth.token });
-    patients.value = patientsData.patients;
-  } catch (exception) {
-    error.value = exception.message;
-  }
-  try {
-    const appointmentsData = await api('/appointments', { token: auth.token });
-    appointments.value = appointmentsData.appointments;
-  } catch (exception) {
-    error.value = exception.message;
-  }
-}
-
-async function createConsultation() {
-  error.value = '';
-  try {
-    await api('/consultations', {
-      method: 'POST',
-      token: auth.token,
-      body: {
-        patient_id: Number(patientId.value),
-        appointment_id: appointmentId.value ? Number(appointmentId.value) : null,
-        chief_complaint: chiefComplaint.value.trim(),
-        examination: examination.value.trim() || null,
-        diagnosis: diagnosis.value.trim() || null,
-        treatment: treatment.value.trim() || null,
-        follow_up_date: followUpDate.value || null,
-      },
-    });
-    patientId.value = '';
-    appointmentId.value = '';
-    chiefComplaint.value = '';
-    examination.value = '';
-    diagnosis.value = '';
-    treatment.value = '';
-    followUpDate.value = '';
-    await loadConsultations();
-  } catch (exception) {
-    error.value = exception.message;
-  }
-}
-
-onMounted(async () => {
-  await loadReferences();
-  await loadConsultations();
-});
-</script>
-
 <template>
-  <main class="page">
-    <header>
-      <strong>HOSPIFLOW</strong>
-      <nav>
-        <router-link to="/">Tableau de bord</router-link>
-        <router-link to="/patients">Patients</router-link>
-        <router-link to="/appointments">Rendez-vous</router-link>
-        <router-link to="/facilities">Établissements</router-link>
-      </nav>
-    </header>
+  <div class="space-y-6">
+    <!-- En-tête -->
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div>
+        <h1 class="text-2xl font-bold text-slate-900">Consultations</h1>
+        <p class="text-slate-500 text-sm mt-1">Consultez l'historique et créez de nouveaux actes médicaux.</p>
+      </div>
+      <button @click="openCreateModal" class="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors shadow-sm flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+        Nouvelle consultation
+      </button>
+    </div>
 
-<section class="content">
-      <h1>Consultations</h1>
-
-<p v-if="error" class="error">{{ error }}</p>
-
-<form class="filters" @submit.prevent="loadConsultations">
-        <label>
-          Historique du patient
-          <select v-model="filterPatientId">
-            <option value="">Tous les patients</option>
-            <option v-for="patient in patients" :key="patient.id" :value="patient.id">
-              {{ patient.last_name }} {{ patient.first_name }} ({{ patient.local_code }})
-            </option>
-          </select>
-        </label>
-        <button type="submit">Afficher</button>
-      </form>
-
-<table v-if="consultations.length">
-        <thead>
+    <!-- Liste des consultations -->
+    <div class="relative max-w-md mb-6">
+      <input 
+        v-model="searchQuery"
+        @input="debouncedSearch"
+        type="text" 
+        placeholder="Rechercher par patient ou motif..." 
+        class="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all text-sm"
+      >
+      <svg class="w-5 h-5 text-slate-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <table class="w-full text-left text-sm whitespace-nowrap">
+        <thead class="bg-slate-50 text-slate-500 border-b border-slate-200">
           <tr>
-            <th>Date</th>
-            <th>Patient</th>
-            <th>Praticien</th>
-            <th>Motif</th>
-            <th>Diagnostic</th>
-            <th>Suivi</th>
+            <th class="px-6 py-4 font-medium">Date</th>
+            <th class="px-6 py-4 font-medium">Patient</th>
+            <th class="px-6 py-4 font-medium">Motif</th>
+            <th class="px-6 py-4 font-medium">Diagnostic</th>
+            <th class="px-6 py-4 font-medium">Praticien</th>
+            <th class="px-6 py-4 font-medium text-right">Actions</th>
           </tr>
         </thead>
-        <tbody>
-          <tr v-for="consultation in consultations" :key="consultation.id">
-            <td>{{ consultation.created_at }}</td>
-            <td>
-              {{ consultation.patient.last_name }} {{ consultation.patient.first_name }}
-              <br />
-              <small>{{ consultation.patient.local_code }}</small>
+        <tbody class="divide-y divide-slate-100">
+          <tr v-if="loading" class="text-center">
+            <td colspan="6" class="px-6 py-8 text-slate-500">Chargement des consultations...</td>
+          </tr>
+          <tr v-else-if="consultations.length === 0" class="text-center">
+            <td colspan="6" class="px-6 py-8 text-slate-500">Aucune consultation enregistrée.</td>
+          </tr>
+          <tr v-for="consult in consultations" :key="consult.id" class="hover:bg-slate-50 transition-colors group">
+            <td class="px-6 py-4 text-slate-600">{{ formatDate(consult.created_at) }}</td>
+            <td class="px-6 py-4">
+              <div class="font-medium text-slate-900">{{ consult.patient.first_name }} {{ consult.patient.last_name }}</div>
+              <div class="text-xs text-slate-500">{{ consult.patient.local_code }}</div>
             </td>
-            <td>{{ consultation.practitioner.name }}</td>
-            <td>{{ consultation.chief_complaint }}</td>
-            <td>{{ consultation.diagnosis || '—' }}</td>
-            <td>{{ consultation.follow_up_date || '—' }}</td>
+            <td class="px-6 py-4 text-slate-700">{{ consult.chief_complaint }}</td>
+            <td class="px-6 py-4 text-slate-700">{{ consult.diagnosis || '-' }}</td>
+            <td class="px-6 py-4 text-slate-600">Dr. {{ consult.practitioner.name }}</td>
+            <td class="px-6 py-4 text-right">
+              <button @click="openViewModal(consult)" class="text-sm font-medium text-primary-600 hover:text-primary-800 opacity-0 group-hover:opacity-100 transition-opacity">
+                Voir détail
+              </button>
+            </td>
           </tr>
         </tbody>
       </table>
+    </div>
 
-<p v-else>Aucune consultation enregistrée.</p>
+    <!-- MODAL : Création de consultation -->
+    <div v-if="showCreateModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm overflow-y-auto">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl my-8">
+        <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center sticky top-0 bg-white z-10 rounded-t-xl">
+          <h3 class="text-lg font-semibold text-slate-900">Nouvelle consultation</h3>
+          <button @click="showCreateModal = false" class="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        
+        <div class="p-6 space-y-5">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">Patient *</label>
+              <select v-model="newConsultation.patient_id" class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-primary-500 focus:border-primary-500">
+                <option value="" disabled>Sélectionnez un patient</option>
+                <option v-for="p in patientList" :key="p.id" :value="p.id">{{ p.first_name }} {{ p.last_name }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">Date de suivi</label>
+              <input v-model="newConsultation.follow_up_date" type="date" class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-primary-500 focus:border-primary-500">
+            </div>
+          </div>
 
-<form class="create" @submit.prevent="createConsultation">
-        <h2>Nouvelle consultation</h2>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Motif de consultation *</label>
+            <input v-model="newConsultation.chief_complaint" type="text" placeholder="Ex: Fièvre persistante, douleurs abdominales..." class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-primary-500 focus:border-primary-500">
+          </div>
+          
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Examen clinique</label>
+            <textarea v-model="newConsultation.examination" rows="3" class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-primary-500 focus:border-primary-500"></textarea>
+          </div>
+          
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Diagnostic</label>
+            <input v-model="newConsultation.diagnosis" type="text" class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-primary-500 focus:border-primary-500">
+          </div>
+          
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Traitement / Prescription</label>
+            <textarea v-model="newConsultation.treatment" rows="3" class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-primary-500 focus:border-primary-500"></textarea>
+          </div>
+        </div>
 
-<label>
-          Patient
-          <select v-model="patientId" required>
-            <option value="" disabled>— Choisir un patient —</option>
-            <option v-for="patient in patients" :key="patient.id" :value="patient.id">
-              {{ patient.last_name }} {{ patient.first_name }} ({{ patient.local_code }})
-            </option>
-          </select>
-        </label>
+        <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-3 rounded-b-xl">
+          <button @click="showCreateModal = false" class="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800">Annuler</button>
+          <button @click="createConsultation" :disabled="saving" class="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 disabled:opacity-50">
+            {{ saving ? 'Enregistrement...' : 'Enregistrer la consultation' }}
+          </button>
+        </div>
+      </div>
+    </div>
 
-<label>
-          Rendez-vous lié (optionnel)
-          <select v-model="appointmentId">
-            <option value="">Aucun</option>
-            <option v-for="appointment in appointments" :key="appointment.id" :value="appointment.id">
-              {{ appointment.scheduled_at }} — {{ appointment.patient.last_name }}
-            </option>
-          </select>
-        </label>
+    <!-- MODAL : Détail consultation -->
+    <div v-if="showViewModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-primary-50">
+          <div>
+            <h3 class="text-lg font-semibold text-primary-900">Consultation du {{ formatDate(selectedConsultation?.created_at) }}</h3>
+            <p class="text-sm text-primary-700">{{ selectedConsultation?.patient.first_name }} {{ selectedConsultation?.patient.last_name }}</p>
+          </div>
+          <button @click="showViewModal = false" class="text-primary-600 hover:text-primary-800">✕</button>
+        </div>
+        
+        <div class="p-6 space-y-6">
+          <div>
+            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Motif</h4>
+            <p class="text-slate-900 text-sm">{{ selectedConsultation?.chief_complaint }}</p>
+          </div>
+          <div>
+            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Examen clinique</h4>
+            <p class="text-slate-900 text-sm whitespace-pre-wrap">{{ selectedConsultation?.examination || 'Non renseigné' }}</p>
+          </div>
+          <div>
+            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Diagnostic</h4>
+            <p class="text-slate-900 text-sm font-medium">{{ selectedConsultation?.diagnosis || 'Non renseigné' }}</p>
+          </div>
+          <div>
+            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Traitement</h4>
+            <div class="bg-slate-50 p-4 rounded-lg text-sm text-slate-900 whitespace-pre-wrap">{{ selectedConsultation?.treatment || 'Aucun traitement prescrit' }}</div>
+          </div>
+          <div class="text-xs text-slate-400 border-t border-slate-100 pt-4 mt-4">
+            Praticien : Dr. {{ selectedConsultation?.practitioner.name }} | Suivi prévu : {{ selectedConsultation?.follow_up_date ? formatDate(selectedConsultation.follow_up_date) : 'Non planifié' }}
+          </div>
+        </div>
 
-<label>
-          Motif de consultation
-          <input v-model="chiefComplaint" required placeholder="Douleurs abdominales…" />
-        </label>
-
-<label>
-          Examen clinique
-          <textarea v-model="examination" rows="3"></textarea>
-        </label>
-
-<label>
-          Diagnostic
-          <input v-model="diagnosis" placeholder="Suspicion d'appendicite aiguë" />
-        </label>
-
-<label>
-          Traitement / conduite à tenir
-          <textarea v-model="treatment" rows="3"></textarea>
-        </label>
-
-<label>
-          Date de suivi
-          <input v-model="followUpDate" type="date" />
-        </label>
-
-<button type="submit">Enregistrer le compte-rendu</button>
-      </form>
-    </section>
-  </main>
+        <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end">
+          <button @click="showViewModal = false" class="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800">Fermer</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
-<style scoped>
-.page { min-height: 100vh; }
-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem 2rem;
-  background: #fff;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 6%);
+<script setup>
+import { ref, onMounted } from 'vue'
+import apiClient from '@/api/client'
+
+const consultations = ref([])
+const searchQuery = ref('')
+const loading = ref(true)
+const patientList = ref([])
+
+const showCreateModal = ref(false)
+const saving = ref(false)
+const newConsultation = ref({
+  patient_id: '',
+  chief_complaint: '',
+  examination: '',
+  diagnosis: '',
+  treatment: '',
+  follow_up_date: '',
+})
+
+const showViewModal = ref(false)
+const selectedConsultation = ref(null)
+
+let searchTimeout = null
+const debouncedSearch = () => {
+  clearTimeout(searchTimeout)
+  searchTimeout = setTimeout(() => fetchConsultations(), 300)
 }
-header strong { color: #0d6efd; letter-spacing: .05em; }
-nav { display: flex; gap: 1.2rem; }
-nav a { color: #1f2937; text-decoration: none; }
-nav a:hover { text-decoration: underline; }
-.content { padding: 2rem; max-width: 1000px; }
-.error { color: #dc2626; }
-.filters { display: flex; gap: .8rem; align-items: end; margin-bottom: 1.2rem; }
-.filters label { display: grid; gap: .25rem; font-size: .9rem; }
-.filters button { padding: .5rem 1rem; border: 0; border-radius: 8px; background: #0d6efd; color: #fff; cursor: pointer; }
-table { border-collapse: collapse; width: 100%; background: #fff; border-radius: 8px; overflow: hidden; }
-th, td { padding: .55rem .8rem; border-bottom: 1px solid #e5e7eb; text-align: left; font-size: .9rem; }
-th { background: #f3f4f6; }
-.create { margin-top: 2rem; display: grid; gap: .6rem; max-width: 520px; background: #fff; padding: 1.5rem; border-radius: 8px; }
-.create h2 { margin: 0 0 .3rem; font-size: 1.1rem; }
-label { display: grid; gap: .25rem; font-size: .9rem; }
-input, select, textarea { padding: .5rem .7rem; border: 1px solid #d1d5db; border-radius: 8px; font-size: .95rem; font-family: inherit; }
-.create button { padding: .6rem; border: 0; border-radius: 8px; background: #0d6efd; color: #fff; cursor: pointer; }
-</style>
+
+const fetchConsultations = async () => {
+  loading.value = true
+  try {
+    const { data } = await apiClient.get('/consultations')
+    let list = data.consultations;
+    if (searchQuery.value.trim()) {
+      const q = searchQuery.value.toLowerCase();
+      list = list.filter(c => 
+        c.patient.first_name.toLowerCase().includes(q) || 
+        c.patient.last_name.toLowerCase().includes(q) ||
+        c.chief_complaint.toLowerCase().includes(q)
+      );
+    }
+    consultations.value = list;
+  } catch (error) {
+    console.error(error)
+  } finally {
+    loading.value = false
+  }
+}
+
+const fetchPatients = async () => {
+  try {
+    const { data } = await apiClient.get('/patients')
+    patientList.value = data.patients
+  } catch (error) {
+    console.error(error)
+  }
+}
+
+const openCreateModal = () => {
+  newConsultation.value = {
+    patient_id: '',
+    chief_complaint: '',
+    examination: '',
+    diagnosis: '',
+    treatment: '',
+    follow_up_date: '',
+  }
+  showCreateModal.value = true
+}
+
+const createConsultation = async () => {
+  saving.value = true
+  try {
+    await apiClient.post('/consultations', newConsultation.value)
+    showCreateModal.value = false
+    fetchConsultations()
+  } catch (error) {
+    alert("Erreur : " + (error.response?.data?.error?.message || error.message))
+  } finally {
+    saving.value = false
+  }
+}
+
+const openViewModal = (consult) => {
+  selectedConsultation.value = consult
+  showViewModal.value = true
+}
+
+const formatDate = (dateString) => {
+  if (!dateString) return '-'
+  return new Date(dateString).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+onMounted(() => {
+  fetchConsultations()
+  fetchPatients()
+})
+</script>

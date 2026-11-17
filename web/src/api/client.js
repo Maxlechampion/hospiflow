@@ -1,26 +1,32 @@
-const BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
+import axios from 'axios'
 
-export async function api(path, { method = 'GET', body, token, facilityId } = {}) {
-  const response = await fetch(`${BASE}${path}`, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(facilityId ? { 'X-Facility-Id': String(facilityId) } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+const apiClient = axios.create({
+  baseURL: 'http://127.0.0.1:8000/api',
+  headers: {
+    'Accept': 'application/json',
+    'Content-Type': 'application/json',
+  },
+})
 
-const data = await response.json().catch(() => ({}));
-
-if (!response.ok) {
-    throw new Error(
-      data.message ||
-        (data.errors && Object.values(data.errors).flat().join(' ')) ||
-        `Erreur HTTP ${response.status}`
-    );
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
   }
+  return config
+})
 
-return data;
-}
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('token')
+      window.location.href = '/login'
+    }
+    return Promise.reject(error)
+  }
+)
+
+// On exporte des deux façons pour éviter les erreurs d'import
+export default apiClient
+export const api = apiClient

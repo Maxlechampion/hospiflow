@@ -1,332 +1,316 @@
-<script setup>
-import { onMounted, ref } from 'vue';
-import { api } from '../api/client';
-import { useAuthStore } from '../stores/auth';
-
-const auth = useAuthStore();
-
-const labRequests = ref([]);
-const patients = ref([]);
-const error = ref('');
-
-const filterPatientId = ref('');
-const filterStatus = ref('');
-
-const patientId = ref('');
-const panel = ref('');
-const priority = ref('routine');
-const notes = ref('');
-
-const resultTargetId = ref(null);
-const resultValues = ref('');
-const resultConclusion = ref('');
-
-const STATUS_LABELS = {
-  pending: 'En attente',
-  in_progress: 'En cours',
-  completed: 'Complétée',
-  cancelled: 'Annulée',
-};
-
-async function loadLabRequests() {
-  error.value = '';
-  try {
-    const params = new URLSearchParams();
-
-if (filterPatientId.value) params.set('patient_id', filterPatientId.value);
-    if (filterStatus.value) params.set('status', filterStatus.value);
-
-const suffix = params.toString() ? '?' + params.toString() : '';
-    const data = await api('/lab-requests' + suffix, { token: auth.token });
-    labRequests.value = data.lab_requests;
-  } catch (exception) {
-    error.value = exception.message;
-  }
-}
-
-async function loadPatients() {
-  try {
-    const patientsData = await api('/patients', { token: auth.token });
-    patients.value = patientsData.patients;
-  } catch (exception) {
-    error.value = exception.message;
-  }
-}
-
-async function createRequest() {
-  error.value = '';
-  try {
-    await api('/lab-requests', {
-      method: 'POST',
-      token: auth.token,
-      body: {
-        patient_id: Number(patientId.value),
-        panel: panel.value.trim(),
-        priority: priority.value,
-        notes: notes.value.trim() || null,
-      },
-    });
-    patientId.value = '';
-    panel.value = '';
-    priority.value = 'routine';
-    notes.value = '';
-    await loadLabRequests();
-  } catch (exception) {
-    error.value = exception.message;
-  }
-}
-
-async function setStatus(requestId, status) {
-  error.value = '';
-  try {
-    await api('/lab-requests/' + requestId, {
-      method: 'PATCH',
-      token: auth.token,
-      body: { status },
-    });
-    await loadLabRequests();
-  } catch (exception) {
-    error.value = exception.message;
-  }
-}
-
-function openResultForm(requestId) {
-  resultTargetId.value = requestId;
-  resultValues.value = '';
-  resultConclusion.value = '';
-}
-
-async function submitResult() {
-  error.value = '';
-  try {
-    await api('/lab-requests/' + resultTargetId.value + '/result', {
-      method: 'POST',
-      token: auth.token,
-      body: {
-        values: resultValues.value.trim(),
-        conclusion: resultConclusion.value.trim() || null,
-      },
-    });
-    resultTargetId.value = null;
-    await loadLabRequests();
-  } catch (exception) {
-    error.value = exception.message;
-  }
-}
-
-onMounted(async () => {
-  await loadPatients();
-  await loadLabRequests();
-});
-</script>
-
 <template>
-  <main class="page">
-    <header>
-      <strong>HOSPIFLOW</strong>
-      <nav>
-        <router-link to="/">Tableau de bord</router-link>
-        <router-link to="/patients">Patients</router-link>
-        <router-link to="/appointments">Rendez-vous</router-link>
-        <router-link to="/consultations">Consultations</router-link>
-        <router-link to="/facilities">Établissements</router-link>
-      </nav>
-    </header>
+  <div class="space-y-6">
+    <!-- En-tête -->
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div>
+        <h1 class="text-2xl font-bold text-slate-900">Laboratoire</h1>
+        <p class="text-slate-500 text-sm mt-1">Gérez les demandes d'analyses et les résultats.</p>
+      </div>
+      <button @click="openRequestModal" class="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors shadow-sm flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+        Nouvelle demande
+      </button>
+    </div>
 
-<section class="content">
-      <h1>Laboratoire</h1>
+    <!-- Filtres -->
+    <div class="flex flex-wrap items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+      <div class="relative flex-1 min-w-[200px]">
+        <input 
+          v-model="searchQuery"
+          @input="debouncedSearch"
+          type="text" 
+          placeholder="Rechercher un patient ou une analyse..." 
+          class="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all text-sm"
+        >
+        <svg class="w-5 h-5 text-slate-400 absolute left-3 top-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+      </div>
+      <select v-model="statusFilter" @change="fetchRequests" class="px-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-primary-500 focus:border-primary-500">
+        <option value="">Tous les statuts</option>
+        <option value="pending">En attente</option>
+        <option value="in_progress">En cours</option>
+        <option value="completed">Terminé</option>
+        <option value="cancelled">Annulé</option>
+      </select>
+    </div>
 
-<p v-if="error" class="error">{{ error }}</p>
-
-<form class="filters" @submit.prevent="loadLabRequests">
-        <label>
-          Patient
-          <select v-model="filterPatientId">
-            <option value="">Tous</option>
-            <option v-for="patient in patients" :key="patient.id" :value="patient.id">
-              {{ patient.last_name }} {{ patient.first_name }} ({{ patient.local_code }})
-            </option>
-          </select>
-        </label>
-        <label>
-          Statut
-          <select v-model="filterStatus">
-            <option value="">Tous</option>
-            <option value="pending">En attente</option>
-            <option value="in_progress">En cours</option>
-            <option value="completed">Complétée</option>
-            <option value="cancelled">Annulée</option>
-          </select>
-        </label>
-        <button type="submit">Afficher</button>
-      </form>
-
-<table v-if="labRequests.length">
-        <thead>
+    <!-- Tableau des demandes -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <table class="w-full text-left text-sm whitespace-nowrap">
+        <thead class="bg-slate-50 text-slate-500 border-b border-slate-200">
           <tr>
-            <th>Date</th>
-            <th>Patient</th>
-            <th>Analyse</th>
-            <th>Prescrit par</th>
-            <th>Priorité</th>
-            <th>Statut</th>
-            <th>Résultat</th>
-            <th>Actions</th>
+            <th class="px-6 py-4 font-medium">Patient</th>
+            <th class="px-6 py-4 font-medium">Analyse</th>
+            <th class="px-6 py-4 font-medium">Priorité</th>
+            <th class="px-6 py-4 font-medium">Date</th>
+            <th class="px-6 py-4 font-medium">Statut</th>
+            <th class="px-6 py-4 font-medium text-right">Actions</th>
           </tr>
         </thead>
-        <tbody>
-          <tr v-for="labRequest in labRequests" :key="labRequest.id">
-            <td>{{ labRequest.created_at }}</td>
-            <td>
-              {{ labRequest.patient.last_name }} {{ labRequest.patient.first_name }}
-              <br />
-              <small>{{ labRequest.patient.local_code }}</small>
+        <tbody class="divide-y divide-slate-100">
+          <tr v-if="loading" class="text-center">
+            <td colspan="6" class="px-6 py-8 text-slate-500">Chargement des demandes...</td>
+          </tr>
+          <tr v-else-if="requests.length === 0" class="text-center">
+            <td colspan="6" class="px-6 py-8 text-slate-500">Aucune demande d'analyse trouvée.</td>
+          </tr>
+          <tr v-for="req in requests" :key="req.id" class="hover:bg-slate-50 transition-colors">
+            <td class="px-6 py-4">
+              <div class="font-medium text-slate-900">{{ req.patient.first_name }} {{ req.patient.last_name }}</div>
+              <div class="text-xs text-slate-500">{{ req.patient.local_code }}</div>
             </td>
-            <td>{{ labRequest.panel }}</td>
-            <td>{{ labRequest.requested_by }}</td>
-            <td>
-              <span class="badge" :class="labRequest.priority">
-                {{ labRequest.priority === 'urgent' ? 'Urgent' : 'Routine' }}
-              </span>
+            <td class="px-6 py-4">
+              <div class="font-medium text-slate-900">{{ req.panel }}</div>
+              <div class="text-xs text-slate-500">Demandé par {{ req.requested_by || '-' }}</div>
             </td>
-            <td>
-              <span class="badge" :class="labRequest.status">
-                {{ STATUS_LABELS[labRequest.status] || labRequest.status }}
-              </span>
+            <td class="px-6 py-4">
+              <span v-if="req.priority === 'urgent'" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 border border-red-200">Urgent</span>
+              <span v-else class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">Routine</span>
             </td>
-            <td>
-              <template v-if="labRequest.result">
-                {{ labRequest.result.conclusion || 'Saisi' }}
-                <br />
-                <small>{{ labRequest.result.resulted_at }} — {{ labRequest.result.resulted_by }}</small>
-              </template>
-              <template v-else>—</template>
-            </td>
-            <td class="actions">
-              <button
-                v-if="labRequest.status === 'pending'"
-                @click="setStatus(labRequest.id, 'in_progress')"
+            <td class="px-6 py-4 text-slate-600">{{ formatDate(req.created_at) }}</td>
+            <td class="px-6 py-4">
+              <span 
+                class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border"
+                :class="{
+                  'bg-amber-50 text-amber-700 border-amber-200': req.status === 'pending',
+                  'bg-blue-50 text-blue-700 border-blue-200': req.status === 'in_progress',
+                  'bg-emerald-50 text-emerald-700 border-emerald-200': req.status === 'completed',
+                  'bg-red-50 text-red-700 border-red-200': req.status === 'cancelled'
+                }"
               >
-                Prendre en charge
-              </button>
-              <button
-                v-if="labRequest.status === 'pending' || labRequest.status === 'in_progress'"
-                @click="openResultForm(labRequest.id)"
+                {{ statusLabels[req.status] }}
+              </span>
+            </td>
+            <td class="px-6 py-4 text-right">
+              <button 
+                v-if="req.status === 'pending' || req.status === 'in_progress'"
+                @click="openResultModal(req)"
+                class="text-sm font-medium text-primary-600 hover:text-primary-800 bg-primary-50 hover:bg-primary-100 px-3 py-1.5 rounded-md transition-colors"
               >
                 Saisir résultat
               </button>
-              <button
-                v-if="labRequest.status === 'pending' || labRequest.status === 'in_progress'"
-                @click="setStatus(labRequest.id, 'cancelled')"
+              <button 
+                v-else-if="req.result"
+                @click="viewResult(req)"
+                class="text-sm font-medium text-slate-600 hover:text-slate-800"
               >
-                Annuler
+                Voir résultat
               </button>
             </td>
           </tr>
         </tbody>
       </table>
+    </div>
 
-<p v-else>Aucune demande d'analyse.</p>
+    <!-- MODAL : Nouvelle demande -->
+    <div v-if="showRequestModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+          <h3 class="text-lg font-semibold text-slate-900">Nouvelle demande d'analyse</h3>
+          <button @click="showRequestModal = false" class="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        <div class="p-6 space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Patient *</label>
+            <select v-model="newRequest.patient_id" class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-primary-500 focus:border-primary-500">
+              <option value="" disabled>Sélectionnez un patient</option>
+              <option v-for="p in patientList" :key="p.id" :value="p.id">{{ p.first_name }} {{ p.last_name }}</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Type d'analyse *</label>
+            <input v-model="newRequest.panel" type="text" placeholder="Ex: NFS, Glycémie..." class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-primary-500 focus:border-primary-500">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Priorité</label>
+            <select v-model="newRequest.priority" class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-primary-500 focus:border-primary-500">
+              <option value="routine">Routine</option>
+              <option value="urgent">Urgent</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Notes</label>
+            <textarea v-model="newRequest.notes" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-primary-500 focus:border-primary-500"></textarea>
+          </div>
+        </div>
+        <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
+          <button @click="showRequestModal = false" class="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800">Annuler</button>
+          <button @click="createRequest" :disabled="saving" class="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 disabled:opacity-50">
+            {{ saving ? 'Enregistrement...' : 'Créer la demande' }}
+          </button>
+        </div>
+      </div>
+    </div>
 
-<form
-        v-if="resultTargetId !== null"
-        class="create"
-        @submit.prevent="submitResult"
-      >
-        <h2>Saisie du résultat (demande #{{ resultTargetId }})</h2>
+    <!-- MODAL : Résultat -->
+    <div v-if="showResultModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+          <h3 class="text-lg font-semibold text-slate-900">Résultat - {{ selectedRequest?.panel }}</h3>
+          <button @click="closeResultModal" class="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        
+        <div v-if="!isViewingResult" class="p-6 space-y-4">
+          <div class="bg-blue-50 text-blue-800 p-4 rounded-lg text-sm mb-4">
+            Saisissez les valeurs de l'analyse. Une fois validé, le statut passera à "Terminé".
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Valeurs *</label>
+            <textarea v-model="resultData.values" rows="5" placeholder="Ex: Hémoglobine: 12.5 g/dL&#10;Leucocytes: 7500 /mm3" class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm font-mono focus:ring-primary-500 focus:border-primary-500"></textarea>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Conclusion</label>
+            <textarea v-model="resultData.conclusion" rows="2" placeholder="Conclusion du médecin..." class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-primary-500 focus:border-primary-500"></textarea>
+          </div>
+        </div>
 
-<label>
-          Valeurs
-          <textarea
-            v-model="resultValues"
-            rows="4"
-            required
-            placeholder="Hb : 13,4 g/dL&#10;GB : 7 800/mm³&#10;CRP : 4 mg/L"
-          ></textarea>
-        </label>
+        <div v-else class="p-6 space-y-4">
+          <div>
+            <h4 class="text-sm font-medium text-slate-500 mb-1">Valeurs</h4>
+            <div class="bg-slate-50 p-4 rounded-lg font-mono text-sm whitespace-pre-wrap">{{ selectedRequest?.result?.values }}</div>
+          </div>
+          <div v-if="selectedRequest?.result?.conclusion">
+            <h4 class="text-sm font-medium text-slate-500 mb-1">Conclusion</h4>
+            <p class="text-slate-900 text-sm">{{ selectedRequest.result.conclusion }}</p>
+          </div>
+          <div class="text-xs text-slate-400 mt-4">
+            Saisi par {{ selectedRequest?.result?.resulted_by }} le {{ formatDate(selectedRequest?.result?.resulted_at) }}
+          </div>
+        </div>
 
-<label>
-          Conclusion
-          <input v-model="resultConclusion" placeholder="Bilan normal" />
-        </label>
-
-<button type="submit">Valider le résultat</button>
-        <button type="button" class="secondary" @click="resultTargetId = null">
-          Annuler
-        </button>
-      </form>
-
-<form class="create" @submit.prevent="createRequest">
-        <h2>Nouvelle demande d'analyse</h2>
-
-<label>
-          Patient
-          <select v-model="patientId" required>
-            <option value="" disabled>— Choisir un patient —</option>
-            <option v-for="patient in patients" :key="patient.id" :value="patient.id">
-              {{ patient.last_name }} {{ patient.first_name }} ({{ patient.local_code }})
-            </option>
-          </select>
-        </label>
-
-<label>
-          Type d'analyse
-          <input v-model="panel" required placeholder="NFS, glycémie, CRP…" />
-        </label>
-
-<label>
-          Priorité
-          <select v-model="priority">
-            <option value="routine">Routine</option>
-            <option value="urgent">Urgent</option>
-          </select>
-        </label>
-
-<label>
-          Notes
-          <input v-model="notes" placeholder="Contexte clinique éventuel" />
-        </label>
-
-<button type="submit">Prescrire</button>
-      </form>
-    </section>
-  </main>
+        <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
+          <button v-if="!isViewingResult" @click="closeResultModal" class="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800">Annuler</button>
+          <button v-if="!isViewingResult" @click="saveResult" :disabled="savingResult" class="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 disabled:opacity-50">
+            {{ savingResult ? 'Enregistrement...' : 'Valider le résultat' }}
+          </button>
+          <button v-if="isViewingResult" @click="closeResultModal" class="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800">Fermer</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
-<style scoped>
-.page { min-height: 100vh; }
-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem 2rem;
-  background: #fff;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 6%);
+<script setup>
+import { ref, onMounted } from 'vue'
+import apiClient from '@/api/client'
+
+const requests = ref([])
+const loading = ref(true)
+const searchQuery = ref('')
+const statusFilter = ref('')
+const patientList = ref([])
+
+const statusLabels = {
+  pending: 'En attente',
+  in_progress: 'En cours',
+  completed: 'Terminé',
+  cancelled: 'Annulé'
 }
-header strong { color: #0d6efd; letter-spacing: .05em; }
-nav { display: flex; gap: 1.2rem; }
-nav a { color: #1f2937; text-decoration: none; }
-nav a:hover { text-decoration: underline; }
-.content { padding: 2rem; max-width: 1100px; }
-.error { color: #dc2626; }
-.filters { display: flex; gap: .8rem; align-items: end; margin-bottom: 1.2rem; }
-.filters label { display: grid; gap: .25rem; font-size: .9rem; }
-.filters button { padding: .5rem 1rem; border: 0; border-radius: 8px; background: #0d6efd; color: #fff; cursor: pointer; }
-table { border-collapse: collapse; width: 100%; background: #fff; border-radius: 8px; overflow: hidden; }
-th, td { padding: .55rem .8rem; border-bottom: 1px solid #e5e7eb; text-align: left; font-size: .9rem; }
-th { background: #f3f4f6; }
-.badge { padding: .15rem .6rem; border-radius: 999px; font-size: .8rem; background: #e5e7eb; color: #374151; }
-.badge.urgent { background: #fee2e2; color: #991b1b; }
-.badge.pending { background: #e0e7ff; color: #3730a3; }
-.badge.in_progress { background: #fef3c7; color: #92400e; }
-.badge.completed { background: #dcfce7; color: #166534; }
-.badge.cancelled { background: #f3f4f6; color: #6b7280; }
-.actions { display: flex; gap: .35rem; flex-wrap: wrap; }
-.actions button { padding: .25rem .55rem; border: 0; border-radius: 6px; background: #0d6efd; color: #fff; cursor: pointer; font-size: .78rem; }
-.create { margin-top: 2rem; display: grid; gap: .6rem; max-width: 520px; background: #fff; padding: 1.5rem; border-radius: 8px; }
-.create h2 { margin: 0 0 .3rem; font-size: 1.1rem; }
-label { display: grid; gap: .25rem; font-size: .9rem; }
-input, select, textarea { padding: .5rem .7rem; border: 1px solid #d1d5db; border-radius: 8px; font-size: .95rem; font-family: inherit; }
-.create button { padding: .6rem; border: 0; border-radius: 8px; background: #0d6efd; color: #fff; cursor: pointer; }
-.create button.secondary { background: #6b7280; }
-</style>
+
+// Modals
+const showRequestModal = ref(false)
+const saving = ref(false)
+const newRequest = ref({ patient_id: '', panel: '', priority: 'routine', notes: '' })
+
+const showResultModal = ref(false)
+const isViewingResult = ref(false)
+const savingResult = ref(false)
+const selectedRequest = ref(null)
+const resultData = ref({ values: '', conclusion: '' })
+
+let searchTimeout = null
+
+const debouncedSearch = () => {
+  clearTimeout(searchTimeout)
+  searchTimeout = setTimeout(fetchRequests, 300)
+}
+
+const fetchRequests = async () => {
+  loading.value = true
+  try {
+    let url = '/lab-requests?'
+    if (statusFilter.value) url += `status=${statusFilter.value}&`
+    const { data } = await apiClient.get(url)
+    let list = data.lab_requests;
+    if (searchQuery.value.trim()) {
+      const q = searchQuery.value.toLowerCase();
+      list = list.filter(r => 
+        r.patient.first_name.toLowerCase().includes(q) || 
+        r.patient.last_name.toLowerCase().includes(q) ||
+        r.panel.toLowerCase().includes(q)
+      );
+    }
+    requests.value = list;
+  } catch (error) {
+    console.error(error)
+  } finally {
+    loading.value = false
+  }
+}
+
+const fetchPatients = async () => {
+  try {
+    const { data } = await apiClient.get('/patients')
+    patientList.value = data.patients
+  } catch (error) {
+    console.error(error)
+  }
+}
+
+const openRequestModal = () => {
+  newRequest.value = { patient_id: '', panel: '', priority: 'routine', notes: '' }
+  showRequestModal.value = true
+}
+
+const createRequest = async () => {
+  saving.value = true
+  try {
+    await apiClient.post('/lab-requests', newRequest.value)
+    showRequestModal.value = false
+    fetchRequests()
+  } catch (error) {
+    alert("Erreur : " + (error.response?.data?.error?.message || error.message))
+  } finally {
+    saving.value = false
+  }
+}
+
+const openResultModal = (req) => {
+  selectedRequest.value = req
+  resultData.value = { values: '', conclusion: '' }
+  isViewingResult.value = false
+  showResultModal.value = true
+}
+
+const viewResult = (req) => {
+  selectedRequest.value = req
+  isViewingResult.value = true
+  showResultModal.value = true
+}
+
+const closeResultModal = () => {
+  showResultModal.value = false
+}
+
+const saveResult = async () => {
+  savingResult.value = true
+  try {
+    await apiClient.post(`/lab-requests/${selectedRequest.value.id}/result`, resultData.value)
+    closeResultModal()
+    fetchRequests()
+  } catch (error) {
+    alert("Erreur : " + (error.response?.data?.error?.message || error.message))
+  } finally {
+    savingResult.value = false
+  }
+}
+
+const formatDate = (dateString) => {
+  if (!dateString) return '-'
+  return new Date(dateString).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+onMounted(() => {
+  fetchRequests()
+  fetchPatients()
+})
+</script>
