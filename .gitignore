@@ -1,0 +1,41 @@
+# Backups de scripts
+*.bak
+*.bak-*
+
+# Fichiers d'export temporaires
+PROJECT-EXPORT-*.txt
+PROJECT-TREE.json
+test-output.txt
+context.md.bak
+
+# Scripts temporaires (à la racine)
+/*.mjs
+!scripts/**/*.mjs
+!tools/**/*.mjs
+
+# Node
+node_modules/
+*.log
+
+# Laravel
+api/vendor/
+api/node_modules/
+api/storage/
+api/.env
+api/.env.*
+!api/.env.example
+api/bootstrap/cache/*
+!api/bootstrap/cache/.gitignore
+api/php-sqlite.ini
+api/phpstan.neon.*.bak
+
+# Web
+web/node_modules/
+web/.env
+web/dist/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
