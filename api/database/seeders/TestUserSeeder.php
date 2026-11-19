@@ -2,17 +2,18 @@
 
 namespace Database\Seeders;
 
-use App\Models\User;
 use App\Models\Facility;
+use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
+use Spatie\Permission\Models\Permission;
 
 class TestUserSeeder extends Seeder
 {
     public function run(): void
     {
         $facility = Facility::first();
-        
+
         if (! $facility) {
             $facility = Facility::create([
                 'code' => 'CLINIQUE-01',
@@ -34,8 +35,8 @@ class TestUserSeeder extends Seeder
         $user->facilities()->syncWithoutDetaching([$facility->id]);
 
         // Donner toutes les permissions (pour les tests)
-        $user->givePermissionTo(\Spatie\Permission\Models\Permission::all());
+        $user->givePermissionTo(Permission::all());
 
-        echo "✅ Utilisateur créé : admin@hospiflow.test / password" . PHP_EOL;
+        echo '✅ Utilisateur créé : admin@hospiflow.test / password'.PHP_EOL;
     }
 }

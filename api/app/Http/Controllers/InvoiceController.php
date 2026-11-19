@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\ResolvesFacility;
 use App\Http\Requests\Invoice\PayInvoiceRequest;
 use App\Http\Requests\Invoice\StoreInvoiceRequest;
 use App\Models\Consultation;
+use App\Models\Dispensation;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Patient;
@@ -87,8 +88,24 @@ class InvoiceController extends Controller
             $record->save();
 
             foreach ($data['items'] as $item) {
+                $dispensationId = $item['dispensation_id'] ?? null;
+
+                // Validation multi-tenant : vérifier que la dispensation appartient au même établissement et au même patient
+                if ($dispensationId) {
+                    $disp = Dispensation::where('id', $dispensationId)
+                        ->where('facility_id', $facility->id)
+                        ->first();
+                    if (! $disp) {
+                        abort(422, 'La dispensation référencée n\'existe pas dans votre établissement.');
+                    }
+                    if ($disp->patient_id !== $patient->id) {
+                        abort(422, 'La dispensation ne correspond pas au patient de la facture.');
+                    }
+                }
+
                 InvoiceItem::create([
                     'invoice_id' => $record->id,
+                    'dispensation_id' => $dispensationId,
                     'label' => $item['label'],
                     'quantity' => $item['quantity'],
                     'unit_price' => $item['unit_price'],
@@ -236,6 +253,7 @@ class InvoiceController extends Controller
             'remaining_amount' => (int) $i->total_amount - $paidAmount,
             'due_date' => $i->due_date?->format('Y-m-d'),
             'items' => $i->items->map(fn ($item) => [
+                'dispensation_id' => $item->dispensation_id,
                 'label' => $item->label,
                 'quantity' => $item->quantity,
                 'unit_price' => (int) $item->unit_price,

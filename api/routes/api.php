@@ -9,6 +9,7 @@ use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\LabRequestController;
 use App\Http\Controllers\PatientController;
 use App\Http\Controllers\PharmacyController;
+use App\Http\Controllers\PrescriptionController;
 use App\Http\Controllers\ReportController;
 use Illuminate\Support\Facades\Route;
 
@@ -71,6 +72,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/pharmacy/dispensations', [PharmacyController::class, 'dispense']);
         Route::get('/pharmacy/dispensations/{dispensationId}', [PharmacyController::class, 'showDispensation']);
 
+        // Prescriptions
+        Route::get('/prescriptions', [PrescriptionController::class, 'index']);
+        Route::post('/prescriptions', [PrescriptionController::class, 'store']);
+        Route::get('/prescriptions/{prescriptionId}', [PrescriptionController::class, 'show']);
+        Route::patch('/prescriptions/{prescriptionId}', [PrescriptionController::class, 'update']);
+        Route::delete('/prescriptions/{prescriptionId}', [PrescriptionController::class, 'destroy']);
+        Route::post('/prescriptions/{prescriptionId}/items', [PrescriptionController::class, 'addItem']);
+        Route::delete('/prescriptions/{prescriptionId}/items/{itemId}', [PrescriptionController::class, 'removeItem']);
+
         // Facturation
         Route::get('/invoices', [InvoiceController::class, 'index']);
         Route::post('/invoices', [InvoiceController::class, 'store']);
@@ -85,5 +95,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/reports/overview', [ReportController::class, 'overview']);
         Route::get('/reports/revenue', [ReportController::class, 'revenue']);
         Route::get('/reports/stock', [ReportController::class, 'stock']);
+        Route::get('/reports/export', [ReportController::class, 'export']); //
     });
 });

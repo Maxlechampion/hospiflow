@@ -10,6 +10,7 @@ use App\Models\MasterPatientIndex;
 use App\Models\Patient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class PatientController extends Controller
 {
@@ -64,52 +65,61 @@ class PatientController extends Controller
         $facility = $this->facility($request);
         $data = $request->validated();
 
-        $mpi = null;
+        [$patient, $created] = DB::transaction(function () use ($facility, $data) {
+            $mpi = null;
 
-        if (! empty($data['mpi_code'])) {
-            $mpi = MasterPatientIndex::where('hospiflow_code', $data['mpi_code'])->first();
+            if (! empty($data['mpi_code'])) {
+                $mpi = MasterPatientIndex::where('hospiflow_code', $data['mpi_code'])
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $mpi) {
+                    abort(422, 'Identifiant réseau HOSPIFLOW inconnu.');
+                }
+            }
 
             if (! $mpi) {
-                abort(422, 'Identifiant réseau HOSPIFLOW inconnu.');
+                $mpi = MasterPatientIndex::create([
+                    'first_name' => $data['first_name'],
+                    'last_name' => $data['last_name'],
+                    'date_of_birth' => $data['date_of_birth'] ?? null,
+                    'gender' => $data['gender'] ?? null,
+                    'phone' => $data['phone'] ?? null,
+                ]);
             }
-        }
 
-        if (! $mpi) {
-            $mpi = MasterPatientIndex::create([
+            $existing = $facility->patients()->where('mpi_id', $mpi->id)->first();
+
+            if ($existing) {
+                return [$existing, false];
+            }
+
+            $patient = $facility->patients()->create([
+                'mpi_id' => $mpi->id,
+                'local_code' => $this->nextLocalCode($facility),
                 'first_name' => $data['first_name'],
                 'last_name' => $data['last_name'],
                 'date_of_birth' => $data['date_of_birth'] ?? null,
                 'gender' => $data['gender'] ?? null,
                 'phone' => $data['phone'] ?? null,
+                'address' => $data['address'] ?? null,
+                'blood_group' => $data['blood_group'] ?? null,
+                'allergies' => $data['allergies'] ?? null,
             ]);
-        }
 
-        $existing = $facility->patients()->where('mpi_id', $mpi->id)->first();
+            return [$patient, true];
+        });
 
-        if ($existing) {
+        $payload = $this->payload($patient->load('mpi:id,hospiflow_code'));
+
+        if (! $created) {
             return response()->json([
-                'patient' => $this->payload($existing->load('mpi:id,hospiflow_code')),
+                'patient' => $payload,
                 'message' => 'Ce patient réseau existe déjà dans cet établissement.',
-            ]);
+            ], 200);
         }
 
-        $patient = $facility->patients()->create([
-            'mpi_id' => $mpi->id,
-            'local_code' => $this->nextLocalCode($facility),
-            'first_name' => $data['first_name'],
-            'last_name' => $data['last_name'],
-            'date_of_birth' => $data['date_of_birth'] ?? null,
-            'gender' => $data['gender'] ?? null,
-            'phone' => $data['phone'] ?? null,
-            'address' => $data['address'] ?? null,
-            'blood_group' => $data['blood_group'] ?? null,
-            'allergies' => $data['allergies'] ?? null,
-        ]);
-
-        return response()->json(
-            ['patient' => $this->payload($patient->load('mpi:id,hospiflow_code'))],
-            201
-        );
+        return response()->json(['patient' => $payload], 201);
     }
 
     public function show(Request $request, int $patientId): JsonResponse

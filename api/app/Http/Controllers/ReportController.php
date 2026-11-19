@@ -220,4 +220,56 @@ class ReportController extends Controller
 
         return [$from, $to];
     }
+
+    public function export(Request $request)
+    {
+        $facility = $this->facility($request);
+        [$from, $to] = $this->period($request);
+        $fromAt = $from.' 00:00:00';
+        $toAt = $to.' 23:59:59';
+
+        // Récupération des métriques (mêmes que dans overview)
+        $patientsTotal = DB::table('patients')->where('facility_id', $facility->id)->count();
+        $newPatients = DB::table('patients')->where('facility_id', $facility->id)->whereBetween('created_at', [$fromAt, $toAt])->count();
+        $consultationsTotal = DB::table('consultations')->where('facility_id', $facility->id)->whereBetween('created_at', [$fromAt, $toAt])->count();
+
+        $billedTotal = (int) DB::table('invoices')
+            ->where('facility_id', $facility->id)
+            ->whereBetween('created_at', [$fromAt, $toAt])
+            ->where('status', '!=', 'cancelled')
+            ->sum('total_amount');
+
+        $paidInPeriod = (int) DB::table('payments')
+            ->join('invoices', 'payments.invoice_id', '=', 'invoices.id')
+            ->where('invoices.facility_id', $facility->id)
+            ->whereBetween('payments.paid_at', [$fromAt, $toAt])
+            ->sum('payments.amount');
+
+        $filename = "rapport_{$facility->code}_{$from}_{$to}.csv";
+
+        $headers = [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => "attachment; filename=\"$filename\"",
+        ];
+
+        $callback = function () use ($facility, $from, $to, $patientsTotal, $newPatients, $consultationsTotal, $billedTotal, $paidInPeriod) {
+            $file = fopen('php://output', 'w');
+            // Ajout du BOM (Byte Order Mark) pour qu'Excel ouvre le fichier en UTF-8 sans caractères bizarres
+            fprintf($file, chr(0xEF).chr(0xBB).chr(0xBF));
+
+            fputcsv($file, ['RAPPORT D\'ACTIVITÉ', $facility->name]);
+            fputcsv($file, ['Période', $from.' au '.$to]);
+            fputcsv($file, []); // Ligne vide
+            fputcsv($file, ['Indicateur', 'Valeur']);
+            fputcsv($file, ['Total Patients', $patientsTotal]);
+            fputcsv($file, ['Nouveaux Patients (période)', $newPatients]);
+            fputcsv($file, ['Consultations (période)', $consultationsTotal]);
+            fputcsv($file, ['Chiffre d\'affaires facturé (période)', $billedTotal]);
+            fputcsv($file, ['Encaissements (période)', $paidInPeriod]);
+
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, $headers);
+    }
 }

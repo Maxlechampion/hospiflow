@@ -16,6 +16,7 @@ class DrugFactory extends Factory
             'form' => $this->randFrom(['comprimé', 'sirop', 'injectable', 'gélule']),
             'dosage' => random_int(1, 10).'mg',
             'unit' => $this->randFrom(['boîte', 'flacon', 'ampoule']),
+            'unit_price' => random_int(500, 15000),
             'is_active' => true,
         ];
     }

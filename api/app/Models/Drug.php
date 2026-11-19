@@ -15,11 +15,13 @@ class Drug extends Model
         'form',
         'dosage',
         'unit',
+        'unit_price',
         'is_active',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'unit_price' => 'integer',
     ];
 
     public function lots(): HasMany

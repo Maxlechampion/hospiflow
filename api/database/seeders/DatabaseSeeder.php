@@ -12,6 +12,7 @@ class DatabaseSeeder extends Seeder
             RolesAndPermissionsSeeder::class,
             FacilitiesSeeder::class,
             PatientsSeeder::class,
+            PrescriptionsPermissionsSeeder::class,
         ]);
     }
 }

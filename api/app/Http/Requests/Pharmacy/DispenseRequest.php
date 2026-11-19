@@ -20,6 +20,8 @@ class DispenseRequest extends FormRequest
             'drug_id' => ['required', 'integer', 'exists:drugs,id'],
             'quantity' => ['required', 'integer', 'min:1', 'max:10000'],
             'notes' => ['nullable', 'string', 'max:500'],
+            'create_invoice' => ['nullable', 'boolean'],
+            'invoice_due_date' => ['nullable', 'date', 'after:today'],
         ];
     }
 
@@ -29,6 +31,7 @@ class DispenseRequest extends FormRequest
             'quantity.required' => 'La quantité dispensée est obligatoire.',
             'patient_id.exists' => 'Patient inconnu.',
             'drug_id.exists' => 'Médicament inconnu.',
+            'invoice_due_date.after' => "L'échéance de la facture doit être future.",
         ];
     }
 }

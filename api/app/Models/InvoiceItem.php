@@ -9,6 +9,7 @@ class InvoiceItem extends Model
 {
     protected $fillable = [
         'invoice_id',
+        'dispensation_id',
         'label',
         'quantity',
         'unit_price',
@@ -18,5 +19,10 @@ class InvoiceItem extends Model
     public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class);
+    }
+
+    public function dispensation(): BelongsTo
+    {
+        return $this->belongsTo(Dispensation::class);
     }
 }

@@ -20,9 +20,13 @@ class RolesAndPermissionsSeeder extends Seeder
             'patients.manage' => ['admin', 'medecin', 'secretaire'],
             'appointments.manage' => ['admin', 'secretaire', 'infirmier'],
             'lab.results.manage' => ['admin', 'laborantin'],
-            'pharmacy.manage' => ['admin', 'pharmacien'],
+            'pharmacy.catalog.manage' => ['admin', 'pharmacien'],
+            'pharmacy.dispense' => ['admin', 'pharmacien', 'preparateur'],
+            'pharmacy.view' => ['admin', 'medecin', 'infirmier', 'pharmacien', 'preparateur'],
             'billing.manage' => ['admin', 'comptable'],
             'reports.view' => ['admin', 'medecin', 'comptable'],
+            'prescriptions.view' => ['admin', 'medecin', 'infirmier', 'pharmacien'],
+            'prescriptions.manage' => ['admin', 'medecin'],
         ];
 
         foreach (array_keys($matrix) as $permissionName) {

@@ -22,6 +22,7 @@ class StoreInvoiceRequest extends FormRequest
             'items.*.label' => ['required', 'string', 'max:300'],
             'items.*.quantity' => ['required', 'integer', 'min:1', 'max:10000'],
             'items.*.unit_price' => ['required', 'integer', 'min:0', 'max:100000000'],
+            'items.*.dispensation_id' => ['nullable', 'integer', 'exists:dispensations,id'],
         ];
     }
 
@@ -32,6 +33,7 @@ class StoreInvoiceRequest extends FormRequest
             'consultation_id.exists' => 'Consultation inconnue.',
             'items.required' => 'La facture doit contenir au moins une ligne.',
             'due_date.after' => "L'échéance doit être future.",
+            'items.*.dispensation_id.exists' => 'Dispensation inconnue.',
         ];
     }
 }
