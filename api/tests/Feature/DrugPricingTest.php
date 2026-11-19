@@ -8,6 +8,8 @@ beforeEach(function () {
     [$this->user, $this->facility] = authUser([
         'pharmacy.view',
         'pharmacy.manage',
+        'pharmacy.catalog.manage',
+        'pharmacy.dispense',
         'billing.view',
         'billing.manage',
     ]);

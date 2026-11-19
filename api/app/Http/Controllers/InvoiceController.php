@@ -73,6 +73,10 @@ class InvoiceController extends Controller
                 $total += $item['quantity'] * $item['unit_price'];
             }
 
+            if ($total <= 0) {
+                abort(422, 'Le montant total de la facture doit être supérieur à 0 XOF.');
+            }
+
             $record = Invoice::create([
                 'facility_id' => $facility->id,
                 'patient_id' => $patient->id,
@@ -254,6 +258,8 @@ class InvoiceController extends Controller
             'due_date' => $i->due_date?->format('Y-m-d'),
             'items' => $i->items->map(fn ($item) => [
                 'dispensation_id' => $item->dispensation_id,
+                'lab_request_id' => $item->lab_request_id,
+                'admission_id' => $item->admission_id,
                 'label' => $item->label,
                 'quantity' => $item->quantity,
                 'unit_price' => (int) $item->unit_price,

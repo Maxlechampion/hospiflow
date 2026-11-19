@@ -11,6 +11,8 @@ use App\Models\DrugLot;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Patient;
+use App\Models\Prescription;
+use App\Models\PrescriptionItem;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -50,7 +52,7 @@ class PharmacyController extends Controller
         ], [
             'name.required' => 'Le nom du médicament est obligatoire.',
             'name.unique' => 'Ce médicament existe déjà au catalogue.',
-            'unit.required' => 'L\'unité de dispensation est obligatoire.',
+            'unit.required' => "L'unité de dispensation est obligatoire.",
         ]);
 
         $drug = Drug::create([
@@ -84,7 +86,7 @@ class PharmacyController extends Controller
         if ($expiringDays !== null) {
             $limit = now()->addDays((int) $expiringDays)->endOfDay();
             $query->whereNotNull('expires_at')
-                ->where('expires_at', '<=', $limit)
+                ->where('expires_at', '<= ', $limit)
                 ->where('expires_at', '>', now())
                 ->where('quantity', '>', 0);
         }
@@ -96,6 +98,7 @@ class PharmacyController extends Controller
 
     public function storeStock(Request $request): JsonResponse
     {
+        $this->authorize('create', DrugLot::class);
         $facility = $this->facility($request);
         $data = $request->validate([
             'drug_id' => ['required', 'integer', 'exists:drugs,id'],
@@ -143,6 +146,11 @@ class PharmacyController extends Controller
             $query->where('patient_id', (int) $patientId);
         }
 
+        $prescriptionId = $request->query('prescription_id');
+        if ($prescriptionId !== null) {
+            $query->where('prescription_id', (int) $prescriptionId);
+        }
+
         return response()->json([
             'dispensations' => $query->get()->map(fn ($d) => $this->dispensationPayload($d)),
         ]);
@@ -156,14 +164,14 @@ class PharmacyController extends Controller
 
         $patient = Patient::inFacility($facility)->find($data['patient_id']);
         if (! $patient) {
-            abort(422, 'Ce patient n\'existe pas dans votre établissement.');
+            abort(422, "Ce patient n'existe pas dans votre établissement.");
         }
 
         $consultation = null;
         if (! empty($data['consultation_id'])) {
             $consultation = Consultation::inFacility($facility)->find($data['consultation_id']);
             if (! $consultation) {
-                abort(422, 'Cette consultation n\'existe pas dans votre établissement.');
+                abort(422, "Cette consultation n'existe pas dans votre établissement.");
             }
         }
 
@@ -172,14 +180,56 @@ class PharmacyController extends Controller
             abort(422, 'Ce médicament est inconnu ou inactif.');
         }
 
+        $prescription = null;
+        if (! empty($data['prescription_id'])) {
+            $prescription = Prescription::inFacility($facility)->with('items')->find($data['prescription_id']);
+            if (! $prescription) {
+                abort(422, "Cette ordonnance n'existe pas dans votre établissement.");
+            }
+            if ((int) $prescription->patient_id !== (int) $patient->id) {
+                abort(422, 'Cette ordonnance ne correspond pas au patient.');
+            }
+            if (in_array($prescription->status, ['cancelled', 'completed'], true)) {
+                abort(422, 'Impossible de dispenser sur une ordonnance terminée ou annulée.');
+            }
+        }
+
+        $prescriptionItem = null;
+        if (! empty($data['prescription_item_id'])) {
+            $prescriptionItem = PrescriptionItem::with('prescription')->find($data['prescription_item_id']);
+            if (! $prescriptionItem || ! $prescriptionItem->prescription) {
+                abort(422, 'Ligne d\'ordonnance introuvable.');
+            }
+            if ((int) $prescriptionItem->prescription->facility_id !== (int) $facility->id) {
+                abort(422, "Cette ligne d'ordonnance n'appartient pas à votre établissement.");
+            }
+            if ($prescription && (int) $prescriptionItem->prescription_id !== (int) $prescription->id) {
+                abort(422, 'La ligne d\'ordonnance ne correspond pas à l\'ordonnance indiquée.');
+            }
+            $prescription = $prescriptionItem->prescription->loadMissing('items');
+            if ((int) $prescription->patient_id !== (int) $patient->id) {
+                abort(422, 'Cette ordonnance ne correspond pas au patient.');
+            }
+            if (in_array($prescription->status, ['cancelled', 'completed'], true)) {
+                abort(422, 'Impossible de dispenser sur une ordonnance terminée ou annulée.');
+            }
+            if ((int) $prescriptionItem->drug_id !== (int) $drug->id) {
+                abort(422, 'Le médicament ne correspond pas à la ligne d\'ordonnance.');
+            }
+            if ($data['quantity'] > $prescriptionItem->remainingQuantity()) {
+                abort(422, 'Quantité supérieure au reste à dispenser ('.$prescriptionItem->remainingQuantity().').');
+            }
+        }
+
         $quantity = $data['quantity'];
         $notes = $data['notes'] ?? null;
         $createInvoice = ! empty($data['create_invoice']);
         $invoiceDueDate = $data['invoice_due_date'] ?? null;
+        $resolvedConsultationId = $consultation->id ?? $prescription?->consultation_id;
 
         [$dispensation, $remaining, $invoice] = DB::transaction(function () use (
-            $facility, $patient, $consultation, $drug, $quantity, $notes,
-            $createInvoice, $invoiceDueDate, $request
+            $facility, $patient, $resolvedConsultationId, $prescription, $prescriptionItem,
+            $drug, $quantity, $notes, $createInvoice, $invoiceDueDate, $request
         ) {
             $lots = DrugLot::inFacility($facility)
                 ->where('drug_id', $drug->id)
@@ -207,15 +257,42 @@ class PharmacyController extends Controller
                 $left -= $take;
             }
 
+            if ($prescriptionItem) {
+                $lockedItem = PrescriptionItem::whereKey($prescriptionItem->id)->lockForUpdate()->first();
+                if ($lockedItem) {
+                    $remainingNow = max(0, (int) $lockedItem->quantity - (int) $lockedItem->dispensed_quantity);
+                    if ($quantity > $remainingNow) {
+                        abort(422, 'Quantité supérieure au reste à dispenser ('.$remainingNow.').');
+                    }
+                    $lockedItem->dispensed_quantity = (int) $lockedItem->dispensed_quantity + $quantity;
+                    $lockedItem->save();
+                }
+            }
+
             $record = Dispensation::create([
                 'facility_id' => $facility->id,
                 'patient_id' => $patient->id,
-                'consultation_id' => $consultation?->id,
+                'consultation_id' => $resolvedConsultationId,
+                'prescription_id' => $prescription?->id,
+                'prescription_item_id' => $prescriptionItem?->id,
                 'drug_id' => $drug->id,
                 'dispensed_by' => $request->user()->id,
                 'quantity' => $quantity,
                 'notes' => $notes,
             ]);
+
+            if ($prescription) {
+                $rxItems = PrescriptionItem::query()->where('prescription_id', $prescription->id)->get();
+                if ($rxItems->count() > 0) {
+                    $allFulfilled = $rxItems->every(
+                        fn (PrescriptionItem $item) => (int) $item->dispensed_quantity >= (int) $item->quantity
+                    );
+                    if ($allFulfilled) {
+                        $prescription->status = 'completed';
+                        $prescription->save();
+                    }
+                }
+            }
 
             $createdInvoice = null;
             if ($createInvoice) {
@@ -225,7 +302,7 @@ class PharmacyController extends Controller
                 $inv = Invoice::create([
                     'facility_id' => $facility->id,
                     'patient_id' => $patient->id,
-                    'consultation_id' => $consultation?->id,
+                    'consultation_id' => $resolvedConsultationId,
                     'created_by' => $request->user()->id,
                     'number' => 'TMP-'.uniqid(),
                     'status' => 'draft',
@@ -258,6 +335,10 @@ class PharmacyController extends Controller
             )),
             'remaining_stock' => $remaining,
         ];
+
+        if ($prescription) {
+            $response['prescription_status'] = $prescription->fresh()->status;
+        }
 
         if ($invoice) {
             $response['invoice'] = [
@@ -333,15 +414,14 @@ class PharmacyController extends Controller
             'total_price' => (int) $d->drug->unit_price * $d->quantity,
             'dispensed_by' => $d->dispenser?->name,
             'consultation_id' => $d->consultation_id,
+            'prescription_id' => $d->prescription_id,
+            'prescription_item_id' => $d->prescription_item_id,
             'notes' => $d->notes,
-            'invoices' => $d->invoiceItems
-                ->filter(fn ($ii) => $ii->invoice !== null)
-                ->map(fn ($ii) => [
-                    'id' => $ii->invoice->id,
-                    'number' => $ii->invoice->number,
-                    'status' => $ii->invoice->status,
-                ])
-                ->values(),
+            'invoices' => $d->invoiceItems->map(fn ($ii) => [
+                'id' => $ii->invoice->id,
+                'number' => $ii->invoice->number,
+                'status' => $ii->invoice->status,
+            ]),
             'created_at' => $d->created_at->format('Y-m-d H:i'),
         ];
     }

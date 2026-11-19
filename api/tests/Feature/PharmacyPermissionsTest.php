@@ -5,7 +5,7 @@ use App\Models\DrugLot;
 use App\Models\Patient;
 
 beforeEach(function () {
-    $this->patient = Patient::factory()->create(['facility_id' => $this->facility->id]);
+    // Chaque test initialise son propre utilisateur et sa facility via authUser()
 });
 
 test('pharmacien can create drug', function () {

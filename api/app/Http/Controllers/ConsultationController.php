@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\ResolvesFacility;
+use App\Http\Requests\Consultation\StoreConsultationRequest;
+use App\Http\Requests\Consultation\UpdateConsultationRequest;
 use App\Models\Appointment;
 use App\Models\Consultation;
 use App\Models\Patient;
@@ -33,28 +35,15 @@ class ConsultationController extends Controller
         ]);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreConsultationRequest $request): JsonResponse
     {
         $facility = $this->facility($request);
-
-        $data = $request->validate([
-            'patient_id' => ['required', 'integer', 'exists:patients,id'],
-            'appointment_id' => ['nullable', 'integer', 'exists:appointments,id'],
-            'chief_complaint' => ['required', 'string', 'max:1000'],
-            'examination' => ['nullable', 'string'],
-            'diagnosis' => ['nullable', 'string', 'max:1000'],
-            'treatment' => ['nullable', 'string'],
-            'follow_up_date' => ['nullable', 'date'],
-        ], [
-            'chief_complaint.required' => 'Le motif de consultation est obligatoire.',
-            'patient_id.exists' => 'Patient inconnu.',
-            'appointment_id.exists' => 'Rendez-vous inconnu.',
-        ]);
+        $data = $request->validated();
 
         $patient = Patient::inFacility($facility)->find($data['patient_id']);
 
         if (! $patient) {
-            abort(422, 'Ce patient n\'existe pas dans votre établissement.');
+            abort(422, "Ce patient n'existe pas dans votre établissement.");
         }
 
         $appointment = null;
@@ -63,7 +52,11 @@ class ConsultationController extends Controller
             $appointment = Appointment::inFacility($facility)->find($data['appointment_id']);
 
             if (! $appointment) {
-                abort(422, 'Ce rendez-vous n\'existe pas dans votre établissement.');
+                abort(422, "Ce rendez-vous n'existe pas dans votre établissement.");
+            }
+
+            if ((int) $appointment->patient_id !== (int) $patient->id) {
+                abort(422, 'Ce rendez-vous ne correspond pas au patient sélectionné.');
             }
         }
 
@@ -107,18 +100,11 @@ class ConsultationController extends Controller
         ]);
     }
 
-    public function update(Request $request, int $consultationId): JsonResponse
+    public function update(UpdateConsultationRequest $request, int $consultationId): JsonResponse
     {
         $facility = $this->facility($request);
         $consultation = Consultation::inFacility($facility)->findOrFail($consultationId);
-
-        $data = $request->validate([
-            'chief_complaint' => ['sometimes', 'string', 'max:1000'],
-            'examination' => ['sometimes', 'nullable', 'string'],
-            'diagnosis' => ['sometimes', 'nullable', 'string', 'max:1000'],
-            'treatment' => ['sometimes', 'nullable', 'string'],
-            'follow_up_date' => ['sometimes', 'nullable', 'date'],
-        ]);
+        $data = $request->validated();
 
         foreach (['chief_complaint', 'examination', 'diagnosis', 'treatment', 'follow_up_date'] as $field) {
             if (array_key_exists($field, $data)) {

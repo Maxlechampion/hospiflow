@@ -12,6 +12,8 @@ class Dispensation extends Model
         'facility_id',
         'patient_id',
         'consultation_id',
+        'prescription_id',
+        'prescription_item_id',
         'drug_id',
         'dispensed_by',
         'quantity',
@@ -21,6 +23,21 @@ class Dispensation extends Model
     public function patient(): BelongsTo
     {
         return $this->belongsTo(Patient::class);
+    }
+
+    public function consultation(): BelongsTo
+    {
+        return $this->belongsTo(Consultation::class);
+    }
+
+    public function prescription(): BelongsTo
+    {
+        return $this->belongsTo(Prescription::class);
+    }
+
+    public function prescriptionItem(): BelongsTo
+    {
+        return $this->belongsTo(PrescriptionItem::class);
     }
 
     public function drug(): BelongsTo

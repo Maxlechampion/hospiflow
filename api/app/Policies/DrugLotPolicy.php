@@ -20,18 +20,18 @@ class DrugLotPolicy
 
     public function create(User $user): bool
     {
-        return $user->can('pharmacy.manage');
+        return $user->can('pharmacy.catalog.manage');
     }
 
     public function update(User $user, DrugLot $lot): bool
     {
-        return $user->can('pharmacy.manage')
+        return $user->can('pharmacy.catalog.manage')
             && $user->current_facility_id === $lot->facility_id;
     }
 
     public function dispense(User $user, DrugLot $lot): bool
     {
-        return $user->can('pharmacy.manage')
+        return $user->can('pharmacy.dispense')
             && $user->current_facility_id === $lot->facility_id
             && $lot->quantity > 0;
     }

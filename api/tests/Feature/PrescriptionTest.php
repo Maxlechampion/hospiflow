@@ -162,7 +162,7 @@ test('cannot delete active prescription', function () {
     $response = $this->actingAs($this->user, 'sanctum')
         ->deleteJson('/api/prescriptions/'.$active->id);
 
-    $response->assertStatus(422);
+    $response->assertStatus(403);
 });
 
 test('add item to existing prescription', function () {

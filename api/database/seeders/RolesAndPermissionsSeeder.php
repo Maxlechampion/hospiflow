@@ -16,13 +16,20 @@ class RolesAndPermissionsSeeder extends Seeder
 
         $matrix = [
             'users.manage' => ['admin'],
+            'facilities.view' => ['admin', 'medecin', 'infirmier', 'secretaire', 'laborantin', 'pharmacien', 'preparateur', 'comptable'],
+            'facilities.manage' => ['admin'],
             'patients.view' => ['admin', 'medecin', 'infirmier', 'secretaire'],
             'patients.manage' => ['admin', 'medecin', 'secretaire'],
             'appointments.manage' => ['admin', 'secretaire', 'infirmier'],
+            'consultations.view' => ['admin', 'medecin', 'infirmier'],
+            'consultations.manage' => ['admin', 'medecin'],
+            'lab.view' => ['admin', 'medecin', 'infirmier', 'laborantin'],
+            'lab.requests.manage' => ['admin', 'medecin'],
             'lab.results.manage' => ['admin', 'laborantin'],
             'pharmacy.catalog.manage' => ['admin', 'pharmacien'],
             'pharmacy.dispense' => ['admin', 'pharmacien', 'preparateur'],
             'pharmacy.view' => ['admin', 'medecin', 'infirmier', 'pharmacien', 'preparateur'],
+            'billing.view' => ['admin', 'comptable', 'medecin'],
             'billing.manage' => ['admin', 'comptable'],
             'reports.view' => ['admin', 'medecin', 'comptable'],
             'prescriptions.view' => ['admin', 'medecin', 'infirmier', 'pharmacien'],
@@ -54,5 +61,7 @@ class RolesAndPermissionsSeeder extends Seeder
         );
 
         $user->assignRole('admin');
+
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
 }

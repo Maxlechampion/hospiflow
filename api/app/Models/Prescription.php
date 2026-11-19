@@ -75,6 +75,14 @@ class Prescription extends Model
         return $this->hasMany(PrescriptionItem::class);
     }
 
+    /**
+     * @return HasMany<Dispensation, $this>
+     */
+    public function dispensations(): HasMany
+    {
+        return $this->hasMany(Dispensation::class);
+    }
+
     public function scopeInFacility($query, Facility $facility)
     {
         return $query->where('facility_id', $facility->id);

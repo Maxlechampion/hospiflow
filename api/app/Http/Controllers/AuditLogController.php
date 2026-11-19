@@ -36,6 +36,10 @@ class AuditLogController extends Controller
             ->orderByDesc('created_at');
 
         if ($type = $request->query('subject_type')) {
+            $allowed = ['Patient', 'Consultation', 'Invoice', 'DrugLot', 'Appointment', 'Prescription'];
+            if (! in_array($type, $allowed, true)) {
+                abort(422, 'Type de sujet non audité.');
+            }
             $query->where('subject_type', 'App\\Models\\'.$type);
         }
 

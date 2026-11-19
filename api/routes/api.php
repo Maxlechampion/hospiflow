@@ -1,11 +1,14 @@
 <?php
 
+use App\Http\Controllers\AdmissionController;
 use App\Http\Controllers\AppointmentController;
 use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\BedController;
 use App\Http\Controllers\ConsultationController;
 use App\Http\Controllers\FacilityController;
 use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\LabPanelController;
 use App\Http\Controllers\LabRequestController;
 use App\Http\Controllers\PatientController;
 use App\Http\Controllers\PharmacyController;
@@ -56,7 +59,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/consultations/{consultationId}', [ConsultationController::class, 'show']);
         Route::patch('/consultations/{consultationId}', [ConsultationController::class, 'update']);
 
-        // Laboratoire
+        // Laboratoire & Catalogue Panels
+        Route::get('/lab-panels', [LabPanelController::class, 'index']);
+        Route::post('/lab-panels', [LabPanelController::class, 'store']);
+        Route::patch('/lab-panels/{labPanelId}', [LabPanelController::class, 'update']);
         Route::get('/lab-requests', [LabRequestController::class, 'index']);
         Route::post('/lab-requests', [LabRequestController::class, 'store']);
         Route::get('/lab-requests/{labRequestId}', [LabRequestController::class, 'show']);
@@ -80,6 +86,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/prescriptions/{prescriptionId}', [PrescriptionController::class, 'destroy']);
         Route::post('/prescriptions/{prescriptionId}/items', [PrescriptionController::class, 'addItem']);
         Route::delete('/prescriptions/{prescriptionId}/items/{itemId}', [PrescriptionController::class, 'removeItem']);
+
+        // Admissions & Lits
+        Route::get('/beds', [BedController::class, 'index']);
+        Route::post('/beds', [BedController::class, 'store']);
+        Route::patch('/beds/{bedId}', [BedController::class, 'update']);
+        Route::get('/admissions', [AdmissionController::class, 'index']);
+        Route::post('/admissions', [AdmissionController::class, 'store']);
+        Route::get('/admissions/{admissionId}', [AdmissionController::class, 'show']);
+        Route::post('/admissions/{admissionId}/discharge', [AdmissionController::class, 'discharge']);
 
         // Facturation
         Route::get('/invoices', [InvoiceController::class, 'index']);

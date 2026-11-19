@@ -17,14 +17,24 @@ class AuthController extends Controller
 
         $user = User::where('email', $data['email'])->first();
 
-        if (! $user || ! Hash::check($data['password'], $user->password)) {
+        $dummyHash = '$2y$12$eImiTXuWVxfM37uY4JANjQeQ1K4m6d8f8Zz1qW2rN3sT4uV5wX6yO';
+
+        if (! $user) {
+            Hash::check($data['password'], $dummyHash);
             throw ValidationException::withMessages([
                 'email' => 'Identifiants incorrects.',
             ]);
         }
 
         if (! $user->is_active) {
+            Hash::check($data['password'], $user->password);
             abort(403, 'Compte désactivé. Contactez un administrateur.');
+        }
+
+        if (! Hash::check($data['password'], $user->password)) {
+            throw ValidationException::withMessages([
+                'email' => 'Identifiants incorrects.',
+            ]);
         }
 
         $user->tokens()->where('name', 'spa')->delete();

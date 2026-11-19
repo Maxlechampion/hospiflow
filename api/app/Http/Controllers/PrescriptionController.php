@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\ResolvesFacility;
+use App\Http\Requests\Prescription\AddPrescriptionItemRequest;
 use App\Http\Requests\Prescription\StorePrescriptionRequest;
 use App\Http\Requests\Prescription\UpdatePrescriptionRequest;
 use App\Models\Consultation;
@@ -52,16 +53,16 @@ class PrescriptionController extends Controller
 
         $patient = Patient::inFacility($facility)->find($data['patient_id']);
         if (! $patient) {
-            abort(422, 'Ce patient n\'existe pas dans votre établissement.');
+            abort(422, "Ce patient n'existe pas dans votre établissement.");
         }
 
         $consultation = null;
         if (! empty($data['consultation_id'])) {
             $consultation = Consultation::inFacility($facility)->find($data['consultation_id']);
             if (! $consultation) {
-                abort(422, 'Cette consultation n\'existe pas dans votre établissement.');
+                abort(422, "Cette consultation n'existe pas dans votre établissement.");
             }
-            if ($consultation->patient_id !== $patient->id) {
+            if ((int) $consultation->patient_id !== (int) $patient->id) {
                 abort(422, 'La consultation ne correspond pas au patient.');
             }
         }
@@ -148,6 +149,7 @@ class PrescriptionController extends Controller
     {
         $facility = $this->facility($request);
         $prescription = Prescription::inFacility($facility)->findOrFail($prescriptionId);
+        $this->authorize('delete', $prescription);
 
         if ($prescription->status !== 'draft') {
             abort(422, 'Seule une prescription en brouillon peut être supprimée.');
@@ -159,26 +161,16 @@ class PrescriptionController extends Controller
         return response()->json(['message' => 'Prescription supprimée.']);
     }
 
-    public function addItem(Request $request, int $prescriptionId): JsonResponse
+    public function addItem(AddPrescriptionItemRequest $request, int $prescriptionId): JsonResponse
     {
         $facility = $this->facility($request);
         $prescription = Prescription::inFacility($facility)->findOrFail($prescriptionId);
 
-        if ($prescription->status === 'cancelled') {
-            abort(422, 'Cette prescription est annulée.');
+        if (in_array($prescription->status, ['cancelled', 'completed'], true)) {
+            abort(422, 'Impossible de modifier une prescription terminée ou annulée.');
         }
 
-        $data = $request->validate([
-            'drug_id' => ['required', 'integer', 'exists:drugs,id'],
-            'dosage' => ['nullable', 'string', 'max:100'],
-            'frequency' => ['nullable', 'string', 'max:100'],
-            'duration' => ['nullable', 'string', 'max:100'],
-            'quantity' => ['nullable', 'integer', 'min:1', 'max:10000'],
-            'instructions' => ['nullable', 'string', 'max:500'],
-            'notes' => ['nullable', 'string', 'max:500'],
-        ], [
-            'drug_id.exists' => 'Médicament inconnu.',
-        ]);
+        $data = $request->validated();
 
         $item = $prescription->items()->create([
             'drug_id' => $data['drug_id'],
@@ -199,9 +191,10 @@ class PrescriptionController extends Controller
     {
         $facility = $this->facility($request);
         $prescription = Prescription::inFacility($facility)->findOrFail($prescriptionId);
+        $this->authorize('update', $prescription);
 
-        if ($prescription->status === 'cancelled') {
-            abort(422, 'Cette prescription est annulée.');
+        if (in_array($prescription->status, ['cancelled', 'completed'], true)) {
+            abort(422, 'Impossible de modifier une prescription terminée ou annulée.');
         }
 
         $item = $prescription->items()->findOrFail($itemId);
@@ -248,6 +241,8 @@ class PrescriptionController extends Controller
             'frequency' => $i->frequency,
             'duration' => $i->duration,
             'quantity' => $i->quantity,
+            'dispensed_quantity' => (int) $i->dispensed_quantity,
+            'remaining_quantity' => $i->remainingQuantity(),
             'instructions' => $i->instructions,
             'notes' => $i->notes,
         ];

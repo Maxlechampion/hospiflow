@@ -17,6 +17,7 @@ class LabRequest extends Model
         'facility_id',
         'patient_id',
         'consultation_id',
+        'lab_panel_id',
         'requested_by',
         'panel',
         'priority',
@@ -32,6 +33,11 @@ class LabRequest extends Model
     public function requester(): BelongsTo
     {
         return $this->belongsTo(User::class, 'requested_by');
+    }
+
+    public function panelCatalog(): BelongsTo
+    {
+        return $this->belongsTo(LabPanel::class, 'lab_panel_id');
     }
 
     public function consultation(): BelongsTo

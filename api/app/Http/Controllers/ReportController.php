@@ -123,7 +123,6 @@ class ReportController extends Controller
         $fromAt = $from.' 00:00:00';
         $toAt = $to.' 23:59:59';
 
-        // VAGUE1: revenue portable — regroupement jour calculé en PHP
         $rawPayments = DB::table('payments')
             ->join('invoices', 'payments.invoice_id', '=', 'invoices.id')
             ->where('invoices.facility_id', $facility->id)
@@ -163,6 +162,8 @@ class ReportController extends Controller
     public function stock(Request $request): JsonResponse
     {
         $facility = $this->facility($request);
+        $now = now();
+        $limit = (clone $now)->addDays(self::EXPIRY_WINDOW_DAYS)->endOfDay();
 
         $lowStock = DB::table('drugs as d')
             ->join('drug_lots as s', 's.drug_id', '=', 'd.id')
@@ -172,21 +173,39 @@ class ReportController extends Controller
             ->selectRaw('d.name as drug, sum(s.quantity) as total_quantity')
             ->get();
 
-        // VAGUE1: stock portable — days_left calculé en PHP
-        $expiringLots = DB::table('drug_lots as s')
+        $candidateLots = DB::table('drug_lots as s')
             ->join('drugs as d', 'd.id', '=', 's.drug_id')
             ->where('s.facility_id', $facility->id)
             ->where('s.quantity', '>', 0)
-            ->where('s.expires_at', '<=', now()->addDays(self::EXPIRY_WINDOW_DAYS))
+            ->whereNotNull('s.expires_at')
+            ->where('s.expires_at', '<=', $limit)
             ->orderBy('s.expires_at')
-            ->selectRaw('d.name as drug, s.quantity as quantity, s.expires_at as expiry_date')
-            ->get()
-            ->map(function ($row) {
-                $expiry = Carbon::parse($row->expiry_date);
-                $row->days_left = max(0, now()->startOfDay()->diffInDays($expiry->startOfDay(), false));
+            ->selectRaw('d.name as drug, s.lot_number as lot_number, s.quantity as quantity, s.expires_at as expiry_date')
+            ->get();
 
-                return $row;
-            });
+        $expiringLots = [];
+        $expiredLots = [];
+
+        foreach ($candidateLots as $row) {
+            $expiry = Carbon::parse($row->expiry_date);
+            if ($expiry->isPast()) {
+                $expiredLots[] = [
+                    'drug' => $row->drug,
+                    'lot_number' => $row->lot_number,
+                    'quantity' => (int) $row->quantity,
+                    'expiry_date' => $row->expiry_date,
+                ];
+            } else {
+                $daysLeft = max(0, $now->copy()->startOfDay()->diffInDays($expiry->copy()->startOfDay(), false));
+                $expiringLots[] = [
+                    'drug' => $row->drug,
+                    'lot_number' => $row->lot_number,
+                    'quantity' => (int) $row->quantity,
+                    'expiry_date' => $row->expiry_date,
+                    'days_left' => (int) $daysLeft,
+                ];
+            }
+        }
 
         return response()->json([
             'report' => [
@@ -196,12 +215,8 @@ class ReportController extends Controller
                     'total_quantity' => (int) $item->total_quantity,
                 ]),
                 'expiring_window_days' => self::EXPIRY_WINDOW_DAYS,
-                'expiring_lots' => $expiringLots->map(fn ($lot) => [
-                    'drug' => $lot->drug,
-                    'quantity' => (int) $lot->quantity,
-                    'expiry_date' => $lot->expiry_date,
-                    'days_left' => (int) $lot->days_left,
-                ]),
+                'expiring_lots' => $expiringLots,
+                'expired_lots' => $expiredLots,
             ],
         ]);
     }
@@ -228,7 +243,6 @@ class ReportController extends Controller
         $fromAt = $from.' 00:00:00';
         $toAt = $to.' 23:59:59';
 
-        // Récupération des métriques (mêmes que dans overview)
         $patientsTotal = DB::table('patients')->where('facility_id', $facility->id)->count();
         $newPatients = DB::table('patients')->where('facility_id', $facility->id)->whereBetween('created_at', [$fromAt, $toAt])->count();
         $consultationsTotal = DB::table('consultations')->where('facility_id', $facility->id)->whereBetween('created_at', [$fromAt, $toAt])->count();
@@ -254,17 +268,16 @@ class ReportController extends Controller
 
         $callback = function () use ($facility, $from, $to, $patientsTotal, $newPatients, $consultationsTotal, $billedTotal, $paidInPeriod) {
             $file = fopen('php://output', 'w');
-            // Ajout du BOM (Byte Order Mark) pour qu'Excel ouvre le fichier en UTF-8 sans caractères bizarres
             fprintf($file, chr(0xEF).chr(0xBB).chr(0xBF));
 
-            fputcsv($file, ['RAPPORT D\'ACTIVITÉ', $facility->name]);
+            fputcsv($file, ["RAPPORT D'ACTIVITÉ", $facility->name]);
             fputcsv($file, ['Période', $from.' au '.$to]);
-            fputcsv($file, []); // Ligne vide
+            fputcsv($file, []);
             fputcsv($file, ['Indicateur', 'Valeur']);
             fputcsv($file, ['Total Patients', $patientsTotal]);
             fputcsv($file, ['Nouveaux Patients (période)', $newPatients]);
             fputcsv($file, ['Consultations (période)', $consultationsTotal]);
-            fputcsv($file, ['Chiffre d\'affaires facturé (période)', $billedTotal]);
+            fputcsv($file, ["Chiffre d'affaires facturé (période)", $billedTotal]);
             fputcsv($file, ['Encaissements (période)', $paidInPeriod]);
 
             fclose($file);

@@ -60,20 +60,20 @@ class AppointmentController extends Controller
         $patient = Patient::inFacility($facility)->find($data['patient_id']);
 
         if (! $patient) {
-            abort(422, 'Ce patient n\'existe pas dans votre établissement.');
+            abort(422, "Ce patient n'existe pas dans votre établissement.");
         }
 
         $practitioner = User::find($data['practitioner_id']);
 
-        if (! $practitioner->isMemberOf($facility)) {
-            abort(422, 'Ce praticien n\'appartient pas à votre établissement.');
+        if (! $practitioner || ! $practitioner->isMemberOf($facility)) {
+            abort(422, "Ce praticien n'appartient pas à votre établissement.");
         }
 
         $start = Carbon::parse($data['scheduled_at']);
         $duration = $data['duration_minutes'] ?? 30;
 
         if ($this->hasConflict($facility, $practitioner->id, $start, $duration)) {
-            abort(422, 'Conflit d\'agenda : le praticien a déjà un rendez-vous sur ce créneau.');
+            abort(422, "Conflit d'agenda : le praticien a déjà un rendez-vous sur ce créneau.");
         }
 
         $appointment = Appointment::create([
@@ -113,6 +113,7 @@ class AppointmentController extends Controller
     {
         $facility = $this->facility($request);
         $appointment = Appointment::inFacility($facility)->findOrFail($appointmentId);
+        $this->authorize('update', $appointment);
 
         $data = $request->validate([
             'status' => ['sometimes', 'string', 'in:'.implode(',', Appointment::STATUSES)],
@@ -124,21 +125,26 @@ class AppointmentController extends Controller
             'status.in' => 'Statut invalide.',
         ]);
 
-        if (isset($data['scheduled_at'])) {
-            $start = Carbon::parse($data['scheduled_at']);
-            $duration = $data['duration_minutes'] ?? $appointment->duration_minutes;
+        $nextStart = isset($data['scheduled_at']) ? Carbon::parse($data['scheduled_at']) : $appointment->scheduled_at;
+        $nextDuration = $data['duration_minutes'] ?? $appointment->duration_minutes;
+        $nextStatus = $data['status'] ?? $appointment->status;
 
-            if ($appointment->status !== 'cancelled') {
-                if ($this->hasConflict($facility, $appointment->practitioner_id, $start, $duration, $appointment->id)) {
-                    abort(422, 'Conflit d\'agenda : le praticien a déjà un rendez-vous sur ce créneau.');
-                }
+        $scheduleOrStatusChanged = isset($data['scheduled_at'])
+            || isset($data['duration_minutes'])
+            || (isset($data['status']) && $data['status'] !== $appointment->status);
+
+        if ($scheduleOrStatusChanged && in_array($nextStatus, ['scheduled', 'confirmed'], true)) {
+            if ($this->hasConflict($facility, $appointment->practitioner_id, $nextStart, $nextDuration, $appointment->id)) {
+                abort(422, "Conflit d'agenda : le praticien a déjà un rendez-vous sur ce créneau.");
             }
+        }
 
-            $appointment->scheduled_at = $start;
+        if (isset($data['scheduled_at'])) {
+            $appointment->scheduled_at = $nextStart;
         }
 
         if (isset($data['duration_minutes'])) {
-            $appointment->duration_minutes = $data['duration_minutes'];
+            $appointment->duration_minutes = $nextDuration;
         }
 
         if (array_key_exists('reason', $data)) {
@@ -150,7 +156,7 @@ class AppointmentController extends Controller
         }
 
         if (isset($data['status'])) {
-            $appointment->status = $data['status'];
+            $appointment->status = $nextStatus;
         }
 
         $appointment->save();

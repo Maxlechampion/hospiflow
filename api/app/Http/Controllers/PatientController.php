@@ -165,10 +165,28 @@ class PatientController extends Controller
 
     private function nextLocalCode(Facility $facility): string
     {
-        $count = Patient::withTrashed()->where('facility_id', $facility->id)->count() + 1;
+        $counter = DB::table('facility_counters')
+            ->where('facility_id', $facility->id)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $counter) {
+            DB::table('facility_counters')->insert([
+                'facility_id' => $facility->id,
+                'patient_sequence' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $next = 1;
+        } else {
+            $next = $counter->patient_sequence + 1;
+            DB::table('facility_counters')
+                ->where('facility_id', $facility->id)
+                ->update(['patient_sequence' => $next, 'updated_at' => now()]);
+        }
 
         return 'P-'.strtoupper($facility->code).'-'
-            .str_pad((string) $count, 4, '0', STR_PAD_LEFT);
+            .str_pad((string) $next, 4, '0', STR_PAD_LEFT);
     }
 
     private function payload(Patient $patient): array
