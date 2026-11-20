@@ -39,6 +39,22 @@ class InvoiceController extends Controller
             $query->where('status', $status);
         }
 
+        $source = $request->query('source');
+
+        if ($source !== null && $source !== '') {
+            if (! is_string($source) || ! in_array($source, ['dispensation', 'lab_request', 'admission'], true)) {
+                abort(422, 'Source de facturation invalide (dispensation, lab_request, admission).');
+            }
+
+            if ($source === 'dispensation') {
+                $query->whereHas('items', fn ($q) => $q->whereNotNull('dispensation_id'));
+            } elseif ($source === 'lab_request') {
+                $query->whereHas('items', fn ($q) => $q->whereNotNull('lab_request_id'));
+            } else {
+                $query->whereHas('items', fn ($q) => $q->whereNotNull('admission_id'));
+            }
+        }
+
         return response()->json([
             'invoices' => $query->get()
                 ->map(fn ($i) => $this->payload($i)),

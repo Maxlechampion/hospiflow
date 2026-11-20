@@ -95,6 +95,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/admissions', [AdmissionController::class, 'store']);
         Route::get('/admissions/{admissionId}', [AdmissionController::class, 'show']);
         Route::post('/admissions/{admissionId}/discharge', [AdmissionController::class, 'discharge']);
+        Route::post('/admissions/{admissionId}/cancel', [AdmissionController::class, 'cancel']);
 
         // Facturation
         Route::get('/invoices', [InvoiceController::class, 'index']);

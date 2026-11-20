@@ -118,7 +118,15 @@
           </div>
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-1">Type d'analyse *</label>
+            <select v-if="labPanels.length > 0" v-model="newRequest.lab_panel_id" @change="onSelectPanel" class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm mb-2">
+              <option value="">Saisie libre ou sélectionnez un panel...</option>
+              <option v-for="p in labPanels" :key="p.id" :value="p.id">{{ p.name }} ({{ Number(p.price || 0).toLocaleString() }} XOF)</option>
+            </select>
             <input v-model="newRequest.panel" type="text" placeholder="Ex: NFS, Glycémie..." class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-primary-500 focus:border-primary-500">
+            <label class="flex items-center gap-2 text-xs text-slate-600 mt-2">
+              <input v-model="newRequest.create_invoice" type="checkbox" class="rounded border-slate-300">
+              Générer automatiquement une facture brouillon
+            </label>
           </div>
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-1">Priorité</label>
@@ -198,6 +206,7 @@ const loading = ref(true)
 const searchQuery = ref('')
 const statusFilter = ref('')
 const patientList = ref([])
+const labPanels = ref([])
 
 const statusLabels = {
   pending: 'En attente',
@@ -247,6 +256,20 @@ const fetchRequests = async () => {
   }
 }
 
+const fetchPanels = async () => {
+  try {
+    const { data } = await apiClient.get("/lab-panels")
+    labPanels.value = (data.lab_panels || []).filter((p) => p.is_active !== false)
+  } catch (error) {
+    console.error(error)
+  }
+}
+
+const onSelectPanel = () => {
+  const found = labPanels.value.find((p) => String(p.id) === String(newRequest.value.lab_panel_id))
+  if (found) newRequest.value.panel = found.name
+}
+
 const fetchPatients = async () => {
   try {
     const { data } = await apiClient.get('/patients')
@@ -257,7 +280,7 @@ const fetchPatients = async () => {
 }
 
 const openRequestModal = () => {
-  newRequest.value = { patient_id: '', panel: '', priority: 'routine', notes: '' }
+  newRequest.value = { patient_id: '', lab_panel_id: '', panel: '', priority: 'routine', notes: '', create_invoice: false }
   showRequestModal.value = true
 }
 
@@ -312,5 +335,6 @@ const formatDate = (dateString) => {
 onMounted(() => {
   fetchRequests()
   fetchPatients()
+  fetchPanels()
 })
 </script>

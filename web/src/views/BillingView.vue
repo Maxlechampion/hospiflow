@@ -37,6 +37,12 @@
         <option value="paid">Payée</option>
         <option value="cancelled">Annulée</option>
       </select>
+      <select v-model="sourceFilter" @change="fetchInvoices" class="px-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-primary-500 focus:border-primary-500">
+        <option value="">Toutes les sources</option>
+        <option value="dispensation">Pharmacie</option>
+        <option value="lab_request">Laboratoire</option>
+        <option value="admission">Hospitalisation</option>
+      </select>
     </div>
 
     <!-- Tableau des factures -->
@@ -205,6 +211,7 @@ const invoices = ref([])
 const loading = ref(true)
 const searchQuery = ref('')
 const statusFilter = ref('')
+const sourceFilter = ref('')
 
 const statusLabels = {
   draft: 'Brouillon',
@@ -240,7 +247,8 @@ const fetchInvoices = async () => {
   loading.value = true
   try {
     let url = '/invoices?'
-    if (statusFilter.value) url += `status=${statusFilter.value}&`
+    if (statusFilter.value) url += 'status=' + encodeURIComponent(statusFilter.value) + '&'
+    if (sourceFilter.value) url += 'source=' + encodeURIComponent(sourceFilter.value) + '&'
     const { data } = await apiClient.get(url)
     invoices.value = data.invoices
   } catch (error) {

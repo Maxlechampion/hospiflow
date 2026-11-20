@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\ResolvesFacility;
+use App\Http\Requests\Admission\CancelAdmissionRequest;
 use App\Http\Requests\Admission\DischargeAdmissionRequest;
 use App\Http\Requests\Admission\StoreAdmissionRequest;
 use App\Models\Admission;
@@ -227,6 +228,50 @@ class AdmissionController extends Controller
         }
 
         return response()->json($response);
+    }
+
+    public function cancel(CancelAdmissionRequest $request, int $admissionId): JsonResponse
+    {
+        $facility = $this->facility($request);
+        $admission = Admission::inFacility($facility)->findOrFail($admissionId);
+        $this->authorize('update', $admission);
+
+        if ($admission->status !== 'admitted') {
+            abort(422, 'Seule une admission active peut être annulée.');
+        }
+
+        $data = $request->validated();
+
+        DB::transaction(function () use ($facility, $admission, $data) {
+            $locked = Admission::inFacility($facility)->whereKey($admission->id)->lockForUpdate()->firstOrFail();
+            if ($locked->status !== 'admitted') {
+                abort(422, 'Cette admission n\'est plus active.');
+            }
+
+            $locked->status = 'cancelled';
+            if (! empty($data['reason'])) {
+                $prefix = $locked->notes ? $locked->notes."\n" : '';
+                $locked->notes = $prefix.'Annulation : '.$data['reason'];
+            }
+            $locked->save();
+
+            if ($locked->bed_id !== null) {
+                $bed = Bed::inFacility($facility)->whereKey($locked->bed_id)->lockForUpdate()->first();
+                if ($bed && $bed->status === 'occupied') {
+                    $bed->status = $data['bed_status'] ?? 'available';
+                    $bed->save();
+                }
+            }
+        });
+
+        $fresh = Admission::inFacility($facility)->with([
+            'patient:id,local_code,first_name,last_name',
+            'bed:id,ward,room_number,code,status',
+            'admitter:id,name',
+            'discharger:id,name',
+        ])->findOrFail($admission->id);
+
+        return response()->json(['admission' => $this->payload($fresh)]);
     }
 
     private function payload(Admission $a): array

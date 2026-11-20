@@ -16,6 +16,7 @@ const router = createRouter({
         { path: 'appointments', name: 'appointments', component: () => import('@/views/AppointmentsView.vue') },
         { path: 'consultations', name: 'consultations', component: () => import('@/views/ConsultationsView.vue') },
         { path: 'pharmacy', name: 'pharmacy', component: () => import('@/views/PharmacyView.vue') },
+        { path: 'admissions', name: 'admissions', component: () => import('@/views/AdmissionsView.vue') },
         { path: 'lab', name: 'lab', component: () => import('@/views/LabView.vue') },
         { path: 'billing', name: 'billing', component: () => import('@/views/BillingView.vue') },
         { path: 'reports', name: 'reports', component: () => import('@/views/Reports.vue') },
