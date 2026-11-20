@@ -20,6 +20,7 @@ const router = createRouter({
         { path: 'lab', name: 'lab', component: () => import('@/views/LabView.vue') },
         { path: 'billing', name: 'billing', component: () => import('@/views/BillingView.vue') },
         { path: 'reports', name: 'reports', component: () => import('@/views/Reports.vue') },
+        { path: 'facilities', name: 'facilities', component: () => import('@/views/FacilitiesView.vue') },
       ]
     },
     { path: '/', redirect: '/login' }
