@@ -29,7 +29,10 @@ class InvoiceController extends Controller
 
         $patientId = $request->query('patient_id');
 
-        if ($patientId !== null) {
+        if ($patientId !== null && $patientId !== '') {
+            if (is_array($patientId) || ! ctype_digit((string) $patientId) || (int) $patientId < 1) {
+                abort(422, 'Identifiant patient invalide.');
+            }
             $query->where('patient_id', (int) $patientId);
         }
 

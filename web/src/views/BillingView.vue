@@ -43,6 +43,10 @@
         <option value="lab_request">Laboratoire</option>
         <option value="admission">Hospitalisation</option>
       </select>
+      <select v-model="patientFilter" @change="fetchInvoices" class="px-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-primary-500 focus:border-primary-500">
+        <option value="">Tous les patients</option>
+        <option v-for="p in patientList" :key="p.id" :value="p.id">{{ p.first_name }} {{ p.last_name }} ({{ p.local_code }})</option>
+      </select>
     </div>
 
     <!-- Tableau des factures -->
@@ -212,6 +216,7 @@ const loading = ref(true)
 const searchQuery = ref('')
 const statusFilter = ref('')
 const sourceFilter = ref('')
+const patientFilter = ref('')
 
 const statusLabels = {
   draft: 'Brouillon',
@@ -249,6 +254,7 @@ const fetchInvoices = async () => {
     let url = '/invoices?'
     if (statusFilter.value) url += 'status=' + encodeURIComponent(statusFilter.value) + '&'
     if (sourceFilter.value) url += 'source=' + encodeURIComponent(sourceFilter.value) + '&'
+    if (patientFilter.value) url += 'patient_id=' + encodeURIComponent(patientFilter.value) + '&'
     const { data } = await apiClient.get(url)
     invoices.value = data.invoices
   } catch (error) {
