@@ -69,6 +69,7 @@ const menuItems = [
   { name: 'appointments', label: 'Rendez-vous', path: '/app/appointments' },
   { name: 'consultations', label: 'Consultations', path: '/app/consultations' },
   { name: 'pharmacy', label: 'Pharmacie', path: '/app/pharmacy' },
+  { name: 'admissions', label: 'Admissions & Lits', path: '/app/admissions' },
   { name: 'lab', label: 'Laboratoire', path: '/app/lab' },
   { name: 'billing', label: 'Facturation', path: '/app/billing' },
   { name: 'reports', label: 'Rapports', path: '/app/reports' },
