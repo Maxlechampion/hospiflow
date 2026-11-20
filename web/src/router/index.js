@@ -20,18 +20,37 @@ const router = createRouter({
         { path: 'lab', name: 'lab', component: () => import('@/views/LabView.vue') },
         { path: 'billing', name: 'billing', component: () => import('@/views/BillingView.vue') },
         { path: 'reports', name: 'reports', component: () => import('@/views/Reports.vue') },
-        { path: 'facilities', name: 'facilities', component: () => import('@/views/FacilitiesView.vue') },
-        { path: 'audit-logs', name: 'audit-logs', component: () => import('@/views/AuditLogsView.vue') },
-      ]
+        {
+          path: 'facilities',
+          name: 'facilities',
+          component: () => import('@/views/FacilitiesView.vue'),
+          meta: { permission: 'facilities.manage' },
+        },
+        {
+          path: 'audit-logs',
+          name: 'audit-logs',
+          component: () => import('@/views/AuditLogsView.vue'),
+          meta: { permission: 'reports.view' },
+        },
+      ],
     },
-    { path: '/', redirect: '/login' }
-  ]
+    { path: '/', redirect: '/login' },
+  ],
 })
 
 router.beforeEach(async (to) => {
   const authStore = useAuthStore()
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     return { name: 'login' }
+  }
+
+  if (to.meta.permission) {
+    if (!authStore.user && authStore.token) {
+      await authStore.fetchUser()
+    }
+    if (!authStore.can(to.meta.permission)) {
+      return { name: 'dashboard' }
+    }
   }
 })
 
