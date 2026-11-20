@@ -21,6 +21,7 @@ const router = createRouter({
         { path: 'billing', name: 'billing', component: () => import('@/views/BillingView.vue') },
         { path: 'reports', name: 'reports', component: () => import('@/views/Reports.vue') },
         { path: 'facilities', name: 'facilities', component: () => import('@/views/FacilitiesView.vue') },
+        { path: 'audit-logs', name: 'audit-logs', component: () => import('@/views/AuditLogsView.vue') },
       ]
     },
     { path: '/', redirect: '/login' }

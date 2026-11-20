@@ -93,6 +93,7 @@ const menuItems = [
   { name: 'billing', label: 'Facturation', path: '/app/billing' },
   { name: 'reports', label: 'Rapports', path: '/app/reports' },
   { name: 'facilities', label: 'Établissements', path: '/app/facilities' },
+  { name: 'audit-logs', label: "Journal d'audit", path: '/app/audit-logs' },
 ]
 
 const loadFacilities = async () => {
