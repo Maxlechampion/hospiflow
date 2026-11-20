@@ -6,10 +6,15 @@
         <h1 class="text-2xl font-bold text-slate-900">Laboratoire</h1>
         <p class="text-slate-500 text-sm mt-1">Gérez les demandes d'analyses et les résultats.</p>
       </div>
-      <button @click="openRequestModal" class="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors shadow-sm flex items-center gap-2">
+      <div class="flex gap-3">
+        <button @click="openPanelsModal" class="bg-white text-slate-700 border border-slate-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors shadow-sm">
+          Gérer les panels
+        </button>
+        <button @click="openRequestModal" class="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors shadow-sm flex items-center gap-2">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
         Nouvelle demande
       </button>
+      </div>
     </div>
 
     <!-- Filtres -->
@@ -194,6 +199,61 @@
         </div>
       </div>
     </div>
+    <!-- MODAL : Gestion des panels -->
+    <div v-if="showPanelsModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm overflow-y-auto">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl my-8 overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+          <h3 class="text-lg font-semibold text-slate-900">Catalogue des panels d'analyse</h3>
+          <button @click="showPanelsModal = false" class="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        <div class="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
+          <form @submit.prevent="createPanel" class="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3">
+            <div class="text-sm font-semibold text-slate-800">Nouveau panel</div>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <input v-model="newPanel.code" type="text" required placeholder="Code (ex: NFS)" class="px-3 py-2 border border-slate-300 rounded-md text-sm uppercase">
+              <input v-model="newPanel.name" type="text" required placeholder="Nom (ex: Numération formule)" class="sm:col-span-2 px-3 py-2 border border-slate-300 rounded-md text-sm">
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <input v-model="newPanel.category" type="text" placeholder="Catégorie (ex: Hématologie)" class="px-3 py-2 border border-slate-300 rounded-md text-sm">
+              <input v-model.number="newPanel.price" type="number" min="0" required placeholder="Tarif (XOF)" class="px-3 py-2 border border-slate-300 rounded-md text-sm">
+              <input v-model.number="newPanel.turnaround_hours" type="number" min="1" placeholder="Délai (heures)" class="px-3 py-2 border border-slate-300 rounded-md text-sm">
+            </div>
+            <div class="flex items-center justify-between pt-1">
+              <label class="flex items-center gap-2 text-xs text-slate-700">
+                <input v-model="newPanel.is_active" type="checkbox" class="rounded border-slate-300">
+                Panel actif
+              </label>
+              <button type="submit" :disabled="savingPanel" class="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 disabled:opacity-50">
+                {{ savingPanel ? "Ajout..." : "Ajouter le panel" }}
+              </button>
+            </div>
+          </form>
+
+          <div class="divide-y divide-slate-100 border border-slate-200 rounded-lg">
+            <div v-if="allPanels.length === 0" class="p-4 text-sm text-slate-500 text-center">Aucun panel configuré.</div>
+            <div v-for="panel in allPanels" :key="panel.id" class="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div class="font-medium text-slate-900 text-sm">{{ panel.code }} · {{ panel.name }}</div>
+                <div class="text-xs text-slate-500">{{ panel.category || "Général" }}{{ panel.turnaround_hours ? " · " + panel.turnaround_hours + "h" : "" }}</div>
+              </div>
+              <div class="flex items-center gap-3">
+                <input v-model.number="panel.price" type="number" min="0" class="w-28 px-2.5 py-1 border border-slate-300 rounded text-sm">
+                <span class="text-xs text-slate-500">XOF</span>
+                <button @click="togglePanelActive(panel)" class="px-2.5 py-1 rounded-full text-xs font-medium" :class="panel.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'">
+                  {{ panel.is_active ? "Actif" : "Inactif" }}
+                </button>
+                <button @click="updatePanelPrice(panel)" class="text-xs font-medium text-primary-600 hover:text-primary-800 px-2 py-1">
+                  Sauver
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end">
+          <button @click="showPanelsModal = false" class="px-4 py-2 text-sm font-medium text-slate-700">Fermer</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -207,6 +267,10 @@ const searchQuery = ref('')
 const statusFilter = ref('')
 const patientList = ref([])
 const labPanels = ref([])
+const allPanels = ref([])
+const showPanelsModal = ref(false)
+const savingPanel = ref(false)
+const newPanel = ref({ code: "", name: "", category: "", price: 0, turnaround_hours: null, is_active: true })
 
 const statusLabels = {
   pending: 'En attente',
@@ -259,9 +323,52 @@ const fetchRequests = async () => {
 const fetchPanels = async () => {
   try {
     const { data } = await apiClient.get("/lab-panels")
-    labPanels.value = (data.lab_panels || []).filter((p) => p.is_active !== false)
+    const list = data.panels || data.lab_panels || []
+    allPanels.value = list
+    labPanels.value = list.filter((p) => p.is_active !== false)
   } catch (error) {
     console.error(error)
+  }
+}
+
+const openPanelsModal = async () => {
+  await fetchPanels()
+  showPanelsModal.value = true
+}
+
+const createPanel = async () => {
+  savingPanel.value = true
+  try {
+    await apiClient.post("/lab-panels", {
+      ...newPanel.value,
+      code: newPanel.value.code.trim().toUpperCase(),
+      category: newPanel.value.category || null,
+      turnaround_hours: newPanel.value.turnaround_hours || null,
+    })
+    newPanel.value = { code: "", name: "", category: "", price: 0, turnaround_hours: null, is_active: true }
+    await fetchPanels()
+  } catch (error) {
+    alert("Erreur panel : " + (error.response?.data?.message || error.response?.data?.error?.message || error.message))
+  } finally {
+    savingPanel.value = false
+  }
+}
+
+const updatePanelPrice = async (panel) => {
+  try {
+    await apiClient.patch("/lab-panels/" + panel.id, { price: Number(panel.price || 0) })
+    await fetchPanels()
+  } catch (error) {
+    alert("Erreur mise à jour : " + (error.response?.data?.message || error.message))
+  }
+}
+
+const togglePanelActive = async (panel) => {
+  try {
+    await apiClient.patch("/lab-panels/" + panel.id, { is_active: !panel.is_active })
+    await fetchPanels()
+  } catch (error) {
+    alert("Erreur statut panel : " + (error.response?.data?.message || error.message))
   }
 }
 
