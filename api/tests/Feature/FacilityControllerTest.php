@@ -85,3 +85,25 @@ test('admin can attach an existing user by email and rejects unknown email', fun
         ])
         ->assertStatus(422);
 });
+
+test('detaching a member from their active facility falls back to another active facility', function () {
+    $fallbackFacility = Facility::factory()->create(['is_active' => true]);
+    $inactiveFacility = Facility::factory()->create(['is_active' => false]);
+
+    $member = User::factory()->create([
+        'current_facility_id' => $this->facility->id,
+    ]);
+    $member->facilities()->syncWithoutDetaching([
+        $this->facility->id,
+        $fallbackFacility->id,
+        $inactiveFacility->id,
+    ]);
+    $this->facility->users()->syncWithoutDetaching([$member->id]);
+
+    $this->actingAs($this->admin, 'sanctum')
+        ->deleteJson('/api/facilities/'.$this->facility->id.'/users/'.$member->id)
+        ->assertStatus(200);
+
+    expect($this->facility->users()->where('users.id', $member->id)->exists())->toBeFalse();
+    expect((int) $member->fresh()->current_facility_id)->toBe($fallbackFacility->id);
+});

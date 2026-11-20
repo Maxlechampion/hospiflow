@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Facility;
 use App\Models\Patient;
 use Spatie\Activitylog\Models\Activity;
 
@@ -115,4 +116,29 @@ test('audit-logs endpoint rejects invalid subject_type with 422', function () {
     $this->actingAs($this->user, 'sanctum')
         ->getJson('/api/audit-logs?subject_type=UnknownModel')
         ->assertStatus(422);
+});
+
+test('audit-logs endpoint isolates logs by current facility', function () {
+    Activity::query()->delete();
+
+    $otherFacility = Facility::factory()->create();
+
+    Patient::factory()->create([
+        'facility_id' => $this->facility->id,
+        'first_name' => 'PatientFacilityA',
+    ]);
+
+    Patient::factory()->create([
+        'facility_id' => $otherFacility->id,
+        'first_name' => 'PatientFacilityB',
+    ]);
+
+    $response = $this->actingAs($this->user, 'sanctum')
+        ->getJson('/api/audit-logs');
+
+    $response->assertStatus(200);
+    $items = $response->json('activity_logs');
+    expect($items)->toHaveCount(1);
+    expect(json_encode($items))->toContain('PatientFacilityA');
+    expect(json_encode($items))->not->toContain('PatientFacilityB');
 });
