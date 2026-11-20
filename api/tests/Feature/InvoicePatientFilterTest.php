@@ -14,8 +14,8 @@ test('filters invoices by patient_id within current facility and rejects invalid
     $otherFacility = Facility::factory()->create();
     $user = User::factory()->create(['current_facility_id' => $facility->id]);
     $user->facilities()->attach([$facility->id, $otherFacility->id]);
-    Permission::firstOrCreate(['name' => 'invoices.view', 'guard_name' => 'web']);
-    $user->givePermissionTo(['invoices.view']);
+    Permission::firstOrCreate(['name' => 'billing.view', 'guard_name' => 'web']);
+    $user->givePermissionTo(['billing.view']);
 
     $patientA = Patient::factory()->create(['facility_id' => $facility->id]);
     $patientB = Patient::factory()->create(['facility_id' => $facility->id]);

@@ -15,8 +15,8 @@ test('filters invoices by source (admission vs manual/other)', function () {
     $facility = Facility::factory()->create();
     $user = User::factory()->create(['current_facility_id' => $facility->id]);
     $user->facilities()->attach($facility->id);
-    Permission::firstOrCreate(['name' => 'invoices.view', 'guard_name' => 'web']);
-    $user->givePermissionTo(['invoices.view']);
+    Permission::firstOrCreate(['name' => 'billing.view', 'guard_name' => 'web']);
+    $user->givePermissionTo(['billing.view']);
     $patient = Patient::factory()->create(['facility_id' => $facility->id]);
 
     $admission = Admission::create([

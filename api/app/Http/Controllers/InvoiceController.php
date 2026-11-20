@@ -20,6 +20,7 @@ class InvoiceController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        $this->authorizeBilling($request, 'billing.view');
         $facility = $this->facility($request);
 
         $query = Invoice::inFacility($facility)
@@ -66,6 +67,7 @@ class InvoiceController extends Controller
 
     public function store(StoreInvoiceRequest $request): JsonResponse
     {
+        $this->authorizeBilling($request, 'billing.manage');
         $facility = $this->facility($request);
         $data = $request->validated();
 
@@ -151,6 +153,7 @@ class InvoiceController extends Controller
 
     public function show(Request $request, int $invoiceId): JsonResponse
     {
+        $this->authorizeBilling($request, 'billing.view');
         $facility = $this->facility($request);
 
         $invoice = Invoice::inFacility($facility)
@@ -165,6 +168,7 @@ class InvoiceController extends Controller
 
     public function update(Request $request, int $invoiceId): JsonResponse
     {
+        $this->authorizeBilling($request, 'billing.manage');
         $facility = $this->facility($request);
         $invoice = Invoice::inFacility($facility)->findOrFail($invoiceId);
 
@@ -210,6 +214,7 @@ class InvoiceController extends Controller
 
     public function pay(PayInvoiceRequest $request, int $invoiceId): JsonResponse
     {
+        $this->authorizeBilling($request, 'billing.manage');
         $facility = $this->facility($request);
         $data = $request->validated();
 
@@ -254,6 +259,13 @@ class InvoiceController extends Controller
         return response()->json([
             'invoice' => $this->payload($invoice),
         ]);
+    }
+
+    private function authorizeBilling(Request $request, string $permission): void
+    {
+        if (! $request->user()?->can($permission)) {
+            abort(403, 'Action non autorisée pour ce module de facturation.');
+        }
     }
 
     private function payload(Invoice $i): array
