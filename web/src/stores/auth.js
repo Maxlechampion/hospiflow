@@ -8,6 +8,10 @@ export const useAuthStore = defineStore('auth', {
   }),
   getters: {
     isAuthenticated: (state) => !!state.token,
+    can: (state) => (permission) => {
+      const perms = state.user?.permissions
+      return Array.isArray(perms) && perms.includes(permission)
+    },
   },
   actions: {
     async login(email, password) {
@@ -25,6 +29,6 @@ export const useAuthStore = defineStore('auth', {
       if (!this.token) return
       const { data } = await apiClient.get('/auth/me')
       this.user = data.user
-    }
-  }
+    },
+  },
 })

@@ -57,10 +57,17 @@ test('audit-logs endpoint requires authentication', function () {
     $this->getJson('/api/audit-logs')->assertStatus(401);
 });
 
+test('audit-logs endpoint forbids access without reports.view permission', function () {
+    [$limitedUser] = authUser(['patients.view'], $this->facility);
+
+    $this->actingAs($limitedUser, 'sanctum')
+        ->getJson('/api/audit-logs')
+        ->assertStatus(403);
+});
+
 test('audit-logs endpoint returns logs for the current facility', function () {
     Activity::query()->delete();
 
-    // Crée un patient (déclenche un log)
     Patient::factory()->create([
         'facility_id' => $this->facility->id,
     ]);
@@ -74,22 +81,38 @@ test('audit-logs endpoint returns logs for the current facility', function () {
             'pagination' => ['current_page', 'per_page', 'total'],
         ]);
 
-    // Vérifie qu'au moins 1 log est retourné (pas juste la structure)
     expect($response->json('activity_logs'))->not->toBeEmpty();
 });
 
-test('audit-logs endpoint filters by subject_type', function () {
+test('audit-logs endpoint filters by subject_type, event, and date range', function () {
     Activity::query()->delete();
 
-    Patient::factory()->create(['facility_id' => $this->facility->id]);
+    $patient = Patient::factory()->create([
+        'facility_id' => $this->facility->id,
+        'phone' => '+22990000001',
+    ]);
 
+    $this->actingAs($this->user, 'sanctum')
+        ->patchJson('/api/patients/'.$patient->id, [
+            'phone' => '+22990000002',
+        ])
+        ->assertStatus(200);
+
+    $today = now()->format('Y-m-d');
     $response = $this->actingAs($this->user, 'sanctum')
-        ->getJson('/api/audit-logs?subject_type=Patient');
+        ->getJson('/api/audit-logs?subject_type=Patient&event=updated&from='.$today.'&to='.$today);
 
     $response->assertStatus(200);
-    $data = $response->json('activity_logs');
-    expect($data)->not->toBeEmpty();
-    foreach ($data as $log) {
-        expect($log['subject']['type'])->toBe(Patient::class);
+    $items = $response->json('activity_logs');
+    expect($items)->not->toBeEmpty();
+    foreach ($items as $item) {
+        expect($item['subject']['type'])->toBe(Patient::class);
+        expect($item['event'])->toBe('updated');
     }
+});
+
+test('audit-logs endpoint rejects invalid subject_type with 422', function () {
+    $this->actingAs($this->user, 'sanctum')
+        ->getJson('/api/audit-logs?subject_type=UnknownModel')
+        ->assertStatus(422);
 });

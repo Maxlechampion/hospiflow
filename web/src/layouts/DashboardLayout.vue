@@ -7,7 +7,7 @@
       </div>
       <nav class="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
         <RouterLink
-          v-for="item in menuItems"
+          v-for="item in visibleMenuItems"
           :key="item.name"
           :to="item.path"
           class="flex items-center px-4 py-2.5 text-sm font-medium rounded-lg transition-colors"
@@ -70,7 +70,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
 import apiClient from '@/api/client'
@@ -92,9 +92,13 @@ const menuItems = [
   { name: 'lab', label: 'Laboratoire', path: '/app/lab' },
   { name: 'billing', label: 'Facturation', path: '/app/billing' },
   { name: 'reports', label: 'Rapports', path: '/app/reports' },
-  { name: 'facilities', label: 'Établissements', path: '/app/facilities' },
-  { name: 'audit-logs', label: "Journal d'audit", path: '/app/audit-logs' },
+  { name: 'facilities', label: 'Établissements', path: '/app/facilities', permission: 'facilities.manage' },
+  { name: 'audit-logs', label: "Journal d'audit", path: '/app/audit-logs', permission: 'reports.view' },
 ]
+
+const visibleMenuItems = computed(() =>
+  menuItems.filter((item) => !item.permission || authStore.can(item.permission))
+)
 
 const loadFacilities = async () => {
   try {
