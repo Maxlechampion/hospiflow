@@ -35,6 +35,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/facilities/{facility}', [FacilityController::class, 'update']);
     Route::post('/facilities/{facility}/switch', [FacilityController::class, 'switch']);
     Route::post('/facilities/{facility}/users', [FacilityController::class, 'attachUser']);
+    Route::get('/facilities/{facility}/users', [FacilityController::class, 'users']);
+    Route::delete('/facilities/{facility}/users/{userId}', [FacilityController::class, 'detachUser']);
 
     // --- Routes métier (facility active requise) ---
     Route::middleware('facility.active')->group(function () {

@@ -14,8 +14,8 @@ class FacilityController extends Controller
         $user = $request->user();
 
         $facilities = $user->can('facilities.manage')
-                    ? Facility::query()->orderBy('name')->get()
-                    : $user->facilities()->orderBy('name')->get();
+            ? Facility::query()->orderBy('name')->get()
+            : $user->facilities()->orderBy('name')->get();
 
         return response()->json([
             'facilities' => $facilities,
@@ -102,6 +102,54 @@ class FacilityController extends Controller
 
         return response()->json([
             'message' => 'Utilisateur rattaché à l\'établissement.',
+            'user_id' => $target->id,
+            'facility_id' => $facility->id,
+        ]);
+    }
+
+    public function users(Request $request, Facility $facility): JsonResponse
+    {
+        $this->authorizeManage($request);
+
+        $members = $facility->users()
+            ->orderBy('name')
+            ->get(['users.id', 'users.name', 'users.email', 'users.phone', 'users.is_active', 'users.current_facility_id']);
+
+        return response()->json([
+            'facility_id' => $facility->id,
+            'users' => $members,
+        ]);
+    }
+
+    public function detachUser(Request $request, Facility $facility, int $userId): JsonResponse
+    {
+        $this->authorizeManage($request);
+
+        $isMember = $facility->users()->where('users.id', $userId)->exists();
+
+        if (! $isMember) {
+            abort(404, "Cet utilisateur n'est pas rattaché à cet établissement.");
+        }
+
+        /** @var User|null $target */
+        $target = User::query()->find($userId);
+
+        if (! $target) {
+            abort(404, "Cet utilisateur n'est pas rattaché à cet établissement.");
+        }
+
+        $facility->users()->detach($target->id);
+
+        if ((int) $target->current_facility_id === (int) $facility->id) {
+            $fallbackFacilityId = $target->facilities()
+                ->where('facilities.is_active', true)
+                ->value('facilities.id');
+
+            $target->forceFill(['current_facility_id' => $fallbackFacilityId])->save();
+        }
+
+        return response()->json([
+            'message' => "Accès utilisateur retiré de l'établissement.",
             'user_id' => $target->id,
             'facility_id' => $facility->id,
         ]);
