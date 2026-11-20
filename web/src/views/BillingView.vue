@@ -94,19 +94,21 @@
               </span>
             </td>
             <td class="px-6 py-4 text-right">
-              <button 
-                v-if="invoice.status === 'issued' && invoice.remaining_amount > 0"
-                @click="openPaymentModal(invoice)"
-                class="text-sm font-medium text-emerald-600 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-md transition-colors"
-              >
-                Encaisser
-              </button>
-              <button 
-                v-else
-                class="text-sm font-medium text-primary-600 hover:text-primary-800 opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                Voir détail
-              </button>
+              <div class="inline-flex items-center justify-end gap-2">
+                <button
+                  @click="openDetailModal(invoice)"
+                  class="text-sm font-medium text-primary-600 hover:text-primary-800 bg-primary-50 hover:bg-primary-100 px-3 py-1.5 rounded-md transition-colors"
+                >
+                  Voir détail
+                </button>
+                <button
+                  v-if="invoice.status === 'issued' && invoice.remaining_amount > 0"
+                  @click="openPaymentModal(invoice)"
+                  class="text-sm font-medium text-emerald-600 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-md transition-colors"
+                >
+                  Encaisser
+                </button>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -204,6 +206,89 @@
         </div>
       </div>
     </div>
+    <!-- MODAL : Détail de facture -->
+    <div v-if="showDetailModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm overflow-y-auto">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl my-8 overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+          <div>
+            <h3 class="text-lg font-semibold text-slate-900">Facture {{ detailInvoice?.number }}</h3>
+            <p v-if="detailInvoice?.patient" class="text-xs text-slate-500 mt-0.5">
+              {{ detailInvoice.patient.first_name }} {{ detailInvoice.patient.last_name }} ({{ detailInvoice.patient.local_code }})
+            </p>
+          </div>
+          <button @click="closeDetailModal" class="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+
+        <div v-if="loadingDetail" class="p-8 text-center text-sm text-slate-500">
+          Chargement du détail de la facture...
+        </div>
+
+        <div v-else-if="detailInvoice" class="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
+          <!-- Résumé montants -->
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div class="bg-slate-50 p-3.5 rounded-lg border border-slate-200">
+              <div class="text-xs text-slate-500">Total facture</div>
+              <div class="text-base font-bold text-slate-900 mt-0.5">{{ Number(detailInvoice.total_amount || 0).toLocaleString() }} XOF</div>
+            </div>
+            <div class="bg-emerald-50/70 p-3.5 rounded-lg border border-emerald-200">
+              <div class="text-xs text-emerald-700">Montant encaissé</div>
+              <div class="text-base font-bold text-emerald-900 mt-0.5">{{ Number(detailInvoice.paid_amount || 0).toLocaleString() }} XOF</div>
+            </div>
+            <div class="bg-amber-50/70 p-3.5 rounded-lg border border-amber-200">
+              <div class="text-xs text-amber-700">Reste à payer</div>
+              <div class="text-base font-bold text-amber-900 mt-0.5">{{ Number(detailInvoice.remaining_amount || 0).toLocaleString() }} XOF</div>
+            </div>
+          </div>
+
+          <!-- Lignes de facturation -->
+          <div>
+            <h4 class="text-sm font-semibold text-slate-800 mb-2.5">Lignes facturées</h4>
+            <div v-if="!detailInvoice.items || detailInvoice.items.length === 0" class="text-sm text-slate-500 bg-slate-50 p-4 rounded-lg border border-slate-200">
+              Aucune ligne enregistrée.
+            </div>
+            <div v-else class="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden">
+              <div v-for="(item, idx) in detailInvoice.items" :key="idx" class="p-3.5 flex items-center justify-between gap-4 bg-white">
+                <div>
+                  <div class="text-sm font-medium text-slate-900">{{ item.label }}</div>
+                  <div class="flex items-center gap-2 mt-1">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">
+                      {{ itemSourceLabel(item) }}
+                    </span>
+                    <span class="text-xs text-slate-500">Qté : {{ item.quantity }} × {{ Number(item.unit_price || 0).toLocaleString() }} XOF</span>
+                  </div>
+                </div>
+                <div class="text-sm font-bold text-slate-900 whitespace-nowrap">
+                  {{ Number(item.amount || 0).toLocaleString() }} XOF
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Historique des paiements -->
+          <div>
+            <h4 class="text-sm font-semibold text-slate-800 mb-2.5">Historique des paiements</h4>
+            <div v-if="!detailInvoice.payments || detailInvoice.payments.length === 0" class="text-sm text-slate-500 bg-slate-50 p-4 rounded-lg border border-slate-200">
+              Aucun encaissement enregistré.
+            </div>
+            <div v-else class="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden">
+              <div v-for="(pay, pIdx) in detailInvoice.payments" :key="pIdx" class="p-3.5 flex items-center justify-between gap-4 bg-white">
+                <div>
+                  <div class="text-sm font-medium text-slate-900">{{ paymentMethodLabel(pay.method) }}</div>
+                  <div class="text-xs text-slate-500 mt-0.5">{{ pay.paid_at }}</div>
+                </div>
+                <div class="text-sm font-bold text-emerald-700 whitespace-nowrap">
+                  +{{ Number(pay.amount || 0).toLocaleString() }} XOF
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end">
+          <button @click="closeDetailModal" class="px-4 py-2 text-sm font-medium text-slate-700 hover:text-slate-900">Fermer</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -234,6 +319,47 @@ const newInvoice = ref({ patient_id: '', items: [{ label: '', quantity: 1, unit_
 const computedTotal = computed(() => {
   return newInvoice.value.items.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0)
 })
+
+// --- Détail ---
+const showDetailModal = ref(false)
+const loadingDetail = ref(false)
+const detailInvoice = ref(null)
+
+const paymentMethodLabels = {
+  cash: 'Espèces',
+  mobile_money: 'Mobile Money',
+  transfer: 'Virement'
+}
+
+const paymentMethodLabel = (method) => paymentMethodLabels[method] || method || 'Paiement'
+
+const itemSourceLabel = (item) => {
+  if (item.dispensation_id) return 'Pharmacie'
+  if (item.lab_request_id) return 'Laboratoire'
+  if (item.admission_id) return 'Hospitalisation'
+  return 'Acte manuel'
+}
+
+const openDetailModal = async (invoice) => {
+  detailInvoice.value = invoice
+  showDetailModal.value = true
+  loadingDetail.value = true
+  try {
+    const { data } = await apiClient.get(`/invoices/${invoice.id}`)
+    if (data?.invoice) {
+      detailInvoice.value = data.invoice
+    }
+  } catch (error) {
+    console.error('Erreur chargement détail facture', error)
+  } finally {
+    loadingDetail.value = false
+  }
+}
+
+const closeDetailModal = () => {
+  showDetailModal.value = false
+  detailInvoice.value = null
+}
 
 // --- Paiement ---
 const showPaymentModal = ref(false)
