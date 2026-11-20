@@ -7,7 +7,7 @@
         <p class="text-slate-500 text-sm mt-1">Gérez vos factures et encaissements.</p>
       </div>
       <div class="flex gap-3">
-        <button class="bg-white text-slate-700 border border-slate-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors shadow-sm flex items-center gap-2">
+        <button @click="exportCsv" class="bg-white text-slate-700 border border-slate-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors shadow-sm flex items-center gap-2">
           <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
           Exporter
         </button>
@@ -94,19 +94,35 @@
               </span>
             </td>
             <td class="px-6 py-4 text-right">
-              <div class="inline-flex items-center justify-end gap-2">
+              <div class="inline-flex items-center justify-end gap-1.5">
                 <button
                   @click="openDetailModal(invoice)"
-                  class="text-sm font-medium text-primary-600 hover:text-primary-800 bg-primary-50 hover:bg-primary-100 px-3 py-1.5 rounded-md transition-colors"
+                  class="text-xs font-medium text-primary-600 hover:text-primary-800 bg-primary-50 hover:bg-primary-100 px-2.5 py-1.5 rounded-md transition-colors"
                 >
-                  Voir détail
+                  Détail
+                </button>
+                <button
+                  v-if="invoice.status === 'draft'"
+                  @click="updateInvoiceStatus(invoice, 'issued')"
+                  :disabled="updatingStatusId === invoice.id"
+                  class="text-xs font-medium text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-2.5 py-1.5 rounded-md transition-colors disabled:opacity-50"
+                >
+                  Émettre
                 </button>
                 <button
                   v-if="invoice.status === 'issued' && invoice.remaining_amount > 0"
                   @click="openPaymentModal(invoice)"
-                  class="text-sm font-medium text-emerald-600 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-md transition-colors"
+                  class="text-xs font-medium text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded-md transition-colors"
                 >
                   Encaisser
+                </button>
+                <button
+                  v-if="(invoice.status === 'draft' || invoice.status === 'issued') && Number(invoice.paid_amount || 0) === 0"
+                  @click="updateInvoiceStatus(invoice, 'cancelled')"
+                  :disabled="updatingStatusId === invoice.id"
+                  class="text-xs font-medium text-red-700 hover:text-red-900 bg-red-50 hover:bg-red-100 px-2.5 py-1.5 rounded-md transition-colors disabled:opacity-50"
+                >
+                  Annuler
                 </button>
               </div>
             </td>
@@ -284,8 +300,26 @@
           </div>
         </div>
 
-        <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end">
-          <button @click="closeDetailModal" class="px-4 py-2 text-sm font-medium text-slate-700 hover:text-slate-900">Fermer</button>
+        <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-wrap justify-between items-center gap-3">
+          <div class="flex items-center gap-2" v-if="detailInvoice">
+            <button
+              v-if="detailInvoice.status === 'draft'"
+              @click="updateInvoiceStatus(detailInvoice, 'issued')"
+              :disabled="updatingStatusId === detailInvoice.id"
+              class="px-3.5 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              Émettre la facture
+            </button>
+            <button
+              v-if="(detailInvoice.status === 'draft' || detailInvoice.status === 'issued') && Number(detailInvoice.paid_amount || 0) === 0"
+              @click="updateInvoiceStatus(detailInvoice, 'cancelled')"
+              :disabled="updatingStatusId === detailInvoice.id"
+              class="px-3.5 py-1.5 text-sm font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 disabled:opacity-50"
+            >
+              Annuler la facture
+            </button>
+          </div>
+          <button @click="closeDetailModal" class="px-4 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 ml-auto">Fermer</button>
         </div>
       </div>
     </div>
@@ -422,6 +456,50 @@ const createInvoice = async () => {
   } finally {
     saving.value = false
   }
+}
+
+const updatingStatusId = ref(null)
+
+const updateInvoiceStatus = async (invoice, nextStatus) => {
+  const label = nextStatus === 'issued' ? 'émettre' : 'annuler'
+  if (!confirm(`Confirmer l'action : ${label} la facture ${invoice.number} ?`)) return
+  updatingStatusId.value = invoice.id
+  try {
+    const { data } = await apiClient.patch(`/invoices/${invoice.id}`, { status: nextStatus })
+    if (detailInvoice.value && detailInvoice.value.id === invoice.id && data?.invoice) {
+      detailInvoice.value = data.invoice
+    }
+    await fetchInvoices()
+  } catch (error) {
+    alert("Erreur mise à jour statut : " + (error.response?.data?.message || error.response?.data?.error?.message || error.message))
+  } finally {
+    updatingStatusId.value = null
+  }
+}
+
+const exportCsv = () => {
+  const headers = ['Numero', 'Code Patient', 'Patient', 'Date', 'Statut', 'Total (XOF)', 'Paye (XOF)', 'Reste (XOF)']
+  const rows = invoices.value.map((inv) => [
+    inv.number,
+    inv.patient?.local_code ?? '',
+    `${inv.patient?.first_name ?? ''} ${inv.patient?.last_name ?? ''}`.trim(),
+    formatDate(inv.created_at),
+    statusLabels[inv.status] ?? inv.status,
+    inv.total_amount ?? 0,
+    inv.paid_amount ?? 0,
+    inv.remaining_amount ?? 0,
+  ])
+  const escapeCell = (val) => `"${String(val ?? '').replace(/"/g, '""')}"`
+  const csvContent = [headers, ...rows].map((r) => r.map(escapeCell).join(';')).join('\r\n')
+  const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.setAttribute('download', `factures-hospiflow-${new Date().toISOString().slice(0, 10)}.csv`)
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
 }
 
 const openPaymentModal = (invoice) => {

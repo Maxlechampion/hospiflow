@@ -48,7 +48,7 @@ test('filters invoices by patient_id within current facility and rejects invalid
         'total_amount' => 30000,
     ]);
 
-    $this->actingAs($user, 'sanctum')->getJson('/api/invoices?patient_id=' . $patientA->id)
+    $this->actingAs($user, 'sanctum')->getJson('/api/invoices?patient_id='.$patientA->id)
         ->assertStatus(200)
         ->assertJsonCount(1, 'invoices')
         ->assertJsonPath('invoices.0.number', 'FAC-80001');
